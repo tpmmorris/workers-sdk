@@ -250,7 +250,7 @@ export function getRootPath(opts: unknown): string {
 
 function validateOptions(
 	opts: unknown
-): [PluginSharedOptions, PluginWorkerOptions[]] {
+): [PluginSharedOptions, PluginWorkerOptions[], string[]] {
 	// Normalise options into shared and worker-specific
 	const sharedOpts = opts;
 	const multipleWorkers = hasMultipleWorkers(opts);
@@ -368,7 +368,7 @@ function validateOptions(
 		names.add(name);
 	}
 
-	return [pluginSharedOpts, pluginWorkerOpts];
+	return [pluginSharedOpts, pluginWorkerOpts, workerRootPaths];
 }
 
 // When creating user worker services, we need to know which Durable Objects
@@ -971,6 +971,7 @@ export class Miniflare {
 	#previousWorkerOpts?: PluginWorkerOptions[];
 	#sharedOpts: PluginSharedOptions;
 	#workerOpts: PluginWorkerOptions[];
+	#workerRootPaths: string[];
 	#log: Log;
 
 	/**
@@ -1031,12 +1032,13 @@ export class Miniflare {
 
 	constructor(opts: MiniflareOptions) {
 		// Split and validate options
-		const [sharedOpts, workerOpts] = validateOptions(opts);
+		const [sharedOpts, workerOpts, workerRootPaths] = validateOptions(opts);
 
 		checkMacOSVersion({ shouldThrow: true });
 
 		this.#sharedOpts = sharedOpts;
 		this.#workerOpts = workerOpts;
+		this.#workerRootPaths = workerRootPaths;
 
 		const workerNamesToProxy = this.#workerNamesToProxy();
 		const enableInspectorProxy = workerNamesToProxy.size > 0;
@@ -2157,6 +2159,7 @@ export class Miniflare {
 				queueConsumers,
 				devRegistryEnabled,
 				hyperdriveProxyController: this.#hyperdriveProxyController,
+				rootPath: this.#workerRootPaths[i],
 			};
 			for (const [key, plugin] of this.#mergedPluginEntries) {
 				const workerOptions = this.#getWorkerOptsForPlugin(key, workerOpts);
@@ -2821,7 +2824,7 @@ export class Miniflare {
 		// This function must be run with `#runtimeMutex` held
 
 		// Split and validate options
-		const [sharedOpts, workerOpts] = validateOptions(opts);
+		const [sharedOpts, workerOpts, workerRootPaths] = validateOptions(opts);
 		this.#previousSharedOpts = this.#sharedOpts;
 		this.#previousWorkerOpts = this.#workerOpts;
 		this.#sharedOpts = sharedOpts;
@@ -2831,6 +2834,7 @@ export class Miniflare {
 		this.#structuredWorkerdLogs =
 			this.#sharedOpts.core.structuredWorkerdLogs ??
 			this.#structuredWorkerdLogs;
+		this.#workerRootPaths = workerRootPaths;
 
 		const newExternalOnUpdate = sharedOpts.core.unsafeHandleDevRegistryUpdate;
 		await this.#devRegistry.updateRegistryPath(
