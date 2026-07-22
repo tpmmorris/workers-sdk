@@ -295,6 +295,7 @@ export function constructExplorerWorkerOpts(
 			r2: [],
 			do: [],
 			workflows: [],
+			sendEmail: [],
 		};
 
 		for (const [bindingName, ns] of namespaceEntries(
@@ -344,6 +345,13 @@ export function constructExplorerWorkerOpts(
 				bindingName,
 				className: workflow.className,
 				scriptName: workflow.scriptName ?? workerName,
+			});
+		}
+
+		for (const sendEmail of workerOpts.email.email?.send_email ?? []) {
+			bindings.sendEmail.push({
+				id: sendEmail.name,
+				bindingName: sendEmail.name,
 			});
 		}
 

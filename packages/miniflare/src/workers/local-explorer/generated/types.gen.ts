@@ -607,6 +607,10 @@ export type LocalExplorerWorkerBindings = {
 	 * Workflow bindings
 	 */
 	workflows?: Array<LocalExplorerWorkflowBinding>;
+	/**
+	 * Send Email bindings
+	 */
+	sendEmail?: Array<LocalExplorerResourceBinding>;
 };
 
 export type LocalExplorerResourceBinding = {
@@ -768,6 +772,136 @@ export type WorkflowsInstanceDetails = {
 		name?: string;
 		message?: string;
 	};
+};
+
+export type EmailRoutingAction = {
+	/**
+	 * The action the handler took on the message.
+	 */
+	action: "received" | "rejected" | "forwarded" | "replied";
+	/**
+	 * ISO 8601 timestamp of when the action occurred.
+	 */
+	timestamp: string;
+	/**
+	 * Action-specific details (e.g. forward recipient).
+	 */
+	details?: {
+		[key: string]: unknown;
+	};
+};
+
+export type EmailRoutingItem = {
+	id: string;
+	/**
+	 * Worker whose email() handler processed the message, if known.
+	 */
+	worker?: string;
+	/**
+	 * Envelope MAIL FROM address.
+	 */
+	from: string;
+	/**
+	 * Envelope RCPT TO address.
+	 */
+	to: string;
+	subject: string;
+	messageId?: string;
+	receivedAt: string;
+	rawSize: number;
+	handlingPath: Array<EmailRoutingAction>;
+};
+
+export type EmailRoutingDetail = {
+	id: string;
+	worker?: string;
+	from: string;
+	to: string;
+	subject: string;
+	messageId?: string;
+	receivedAt: string;
+	rawSize: number;
+	/**
+	 * Raw MIME content of the received email.
+	 */
+	raw: string;
+	handlingPath: Array<EmailRoutingAction>;
+};
+
+export type EmailSendRequest = {
+	/**
+	 * Sender address.
+	 */
+	from: string;
+	/**
+	 * Recipient addresses.
+	 */
+	to: Array<string>;
+	cc?: Array<string>;
+	bcc?: Array<string>;
+	replyTo?: string;
+	subject: string;
+	/**
+	 * Plain text body.
+	 */
+	text?: string;
+	/**
+	 * HTML body.
+	 */
+	html?: string;
+	/**
+	 * Custom headers to include on the message.
+	 */
+	headers?: {
+		[key: string]: string;
+	};
+};
+
+export type EmailSendingAttachment = {
+	filename: string;
+	contentType: string;
+	disposition: "inline" | "attachment";
+	size: number;
+};
+
+export type EmailSendingItem = {
+	id: string;
+	/**
+	 * Name of the Send Email binding used.
+	 */
+	binding: string;
+	from: string;
+	to: Array<string>;
+	cc?: Array<string>;
+	bcc?: Array<string>;
+	replyTo?: string;
+	subject: string;
+	messageId?: string;
+	sentAt: string;
+	attachments: Array<EmailSendingAttachment>;
+};
+
+export type EmailSendingDetail = {
+	id: string;
+	binding: string;
+	from: string;
+	to: Array<string>;
+	cc?: Array<string>;
+	bcc?: Array<string>;
+	replyTo?: string;
+	subject: string;
+	messageId?: string;
+	sentAt: string;
+	text?: string;
+	html?: string;
+	headers?: {
+		[key: string]: string;
+	};
+	attachments: Array<EmailSendingAttachment>;
+	/**
+	 * Raw MIME content, present when sent via the EmailMessage API.
+	 */
+	raw?: string;
 };
 
 export type R2ResultInfoWritable = {
@@ -1820,3 +1954,154 @@ export type WorkflowsSendInstanceEventResponses = {
 
 export type WorkflowsSendInstanceEventResponse =
 	WorkflowsSendInstanceEventResponses[keyof WorkflowsSendInstanceEventResponses];
+
+export type EmailListRoutingData = {
+	body?: never;
+	path?: never;
+	query?: never;
+	url: "/email/routing";
+};
+
+export type EmailListRoutingErrors = {
+	/**
+	 * List received emails failure.
+	 */
+	"4XX": WorkersApiResponseCommonFailure;
+};
+
+export type EmailListRoutingError =
+	EmailListRoutingErrors[keyof EmailListRoutingErrors];
+
+export type EmailListRoutingResponses = {
+	/**
+	 * List received emails response.
+	 */
+	200: WorkersApiResponseCommon & {
+		result?: Array<EmailRoutingItem>;
+	};
+};
+
+export type EmailListRoutingResponse =
+	EmailListRoutingResponses[keyof EmailListRoutingResponses];
+
+export type EmailSendRoutingData = {
+	body: EmailSendRequest;
+	path?: never;
+	query?: never;
+	url: "/email/routing/send";
+};
+
+export type EmailSendRoutingErrors = {
+	/**
+	 * Send test email failure.
+	 */
+	"4XX": WorkersApiResponseCommonFailure;
+};
+
+export type EmailSendRoutingError =
+	EmailSendRoutingErrors[keyof EmailSendRoutingErrors];
+
+export type EmailSendRoutingResponses = {
+	/**
+	 * Send test email response.
+	 */
+	200: WorkersApiResponseCommon & {
+		result?: {
+			id?: string;
+		};
+	};
+};
+
+export type EmailSendRoutingResponse =
+	EmailSendRoutingResponses[keyof EmailSendRoutingResponses];
+
+export type EmailGetRoutingData = {
+	body?: never;
+	path: {
+		email_id: string;
+	};
+	query?: never;
+	url: "/email/routing/{email_id}";
+};
+
+export type EmailGetRoutingErrors = {
+	/**
+	 * Get received email failure.
+	 */
+	"4XX": WorkersApiResponseCommonFailure;
+};
+
+export type EmailGetRoutingError =
+	EmailGetRoutingErrors[keyof EmailGetRoutingErrors];
+
+export type EmailGetRoutingResponses = {
+	/**
+	 * Get received email response.
+	 */
+	200: WorkersApiResponseCommon & {
+		result?: EmailRoutingDetail;
+	};
+};
+
+export type EmailGetRoutingResponse =
+	EmailGetRoutingResponses[keyof EmailGetRoutingResponses];
+
+export type EmailListSendingData = {
+	body?: never;
+	path?: never;
+	query?: never;
+	url: "/email/sending";
+};
+
+export type EmailListSendingErrors = {
+	/**
+	 * List sent emails failure.
+	 */
+	"4XX": WorkersApiResponseCommonFailure;
+};
+
+export type EmailListSendingError =
+	EmailListSendingErrors[keyof EmailListSendingErrors];
+
+export type EmailListSendingResponses = {
+	/**
+	 * List sent emails response.
+	 */
+	200: WorkersApiResponseCommon & {
+		result?: Array<EmailSendingItem>;
+	};
+};
+
+export type EmailListSendingResponse =
+	EmailListSendingResponses[keyof EmailListSendingResponses];
+
+export type EmailGetSendingData = {
+	body?: never;
+	path: {
+		email_id: string;
+	};
+	query?: never;
+	url: "/email/sending/{email_id}";
+};
+
+export type EmailGetSendingErrors = {
+	/**
+	 * Get sent email failure.
+	 */
+	"4XX": WorkersApiResponseCommonFailure;
+};
+
+export type EmailGetSendingError =
+	EmailGetSendingErrors[keyof EmailGetSendingErrors];
+
+export type EmailGetSendingResponses = {
+	/**
+	 * Get sent email response.
+	 */
+	200: WorkersApiResponseCommon & {
+		result?: EmailSendingDetail;
+	};
+};
+
+export type EmailGetSendingResponse =
+	EmailGetSendingResponses[keyof EmailGetSendingResponses];
