@@ -431,6 +431,7 @@ export const zLocalExplorerWorkerBindings = z.object({
 	r2: z.array(zLocalExplorerResourceBinding).optional(),
 	do: z.array(zLocalExplorerDoBinding).optional(),
 	workflows: z.array(zLocalExplorerWorkflowBinding).optional(),
+	sendEmail: z.array(zLocalExplorerResourceBinding).optional(),
 });
 
 export const zLocalExplorerWorker = z.object({
