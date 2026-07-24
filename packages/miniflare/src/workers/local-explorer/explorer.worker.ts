@@ -10,6 +10,7 @@ import { wrapResponse } from "./common";
 import {
 	zD1ListDatabasesData,
 	zD1RawDatabaseQueryData,
+	zEmailSendRoutingData,
 	zDurableObjectsNamespaceListObjectsData,
 	zDurableObjectsNamespaceQuerySqliteData,
 	zR2BucketDeleteObjectsData,
@@ -23,6 +24,13 @@ import {
 import openApiSpec from "./openapi.local.json";
 import { listD1Databases, rawD1Database } from "./resources/d1";
 import { listDONamespaces, listDOObjects, queryDOSqlite } from "./resources/do";
+import {
+	getReceivedEmail,
+	getSentEmail,
+	listReceivedEmails,
+	listSentEmails,
+	sendTestEmail,
+} from "./resources/email";
 import {
 	bulkGetKVValues,
 	deleteKVValue,
@@ -347,6 +355,28 @@ app.delete("/api/workflows/:workflow_name/instances/:instance_id", (c) =>
 		c.req.param("workflow_name"),
 		c.req.param("instance_id")
 	)
+);
+
+// ============================================================================
+// Email Endpoints
+// ============================================================================
+
+app.get("/api/email/routing", (c) => listReceivedEmails(c));
+
+app.post(
+	"/api/email/routing/send",
+	validateRequestBody(zEmailSendRoutingData.shape.body),
+	(c) => sendTestEmail(c, c.req.valid("json"))
+);
+
+app.get("/api/email/routing/:email_id", (c) =>
+	getReceivedEmail(c, c.req.param("email_id"))
+);
+
+app.get("/api/email/sending", (c) => listSentEmails(c));
+
+app.get("/api/email/sending/:email_id", (c) =>
+	getSentEmail(c, c.req.param("email_id"))
 );
 
 // ============================================================================
