@@ -608,7 +608,7 @@ export type LocalExplorerWorkerBindings = {
 	 */
 	workflows?: Array<LocalExplorerWorkflowBinding>;
 	/**
-	 * Send Email bindings
+	 * send_email bindings
 	 */
 	sendEmail?: Array<LocalExplorerResourceBinding>;
 };
@@ -778,7 +778,7 @@ export type EmailRoutingAction = {
 	/**
 	 * The action the handler took on the message.
 	 */
-	action: "received" | "rejected" | "forwarded" | "replied";
+	action: "received" | "unhandled" | "rejected" | "forwarded" | "replied";
 	/**
 	 * ISO 8601 timestamp of when the action occurred.
 	 */
@@ -828,6 +828,9 @@ export type EmailRoutingDetail = {
 	handlingPath: Array<EmailRoutingAction>;
 };
 
+/**
+ * Fields for composing a test email, mirroring MessageBuilder.
+ */
 export type EmailSendRequest = {
 	/**
 	 * Sender address.
@@ -866,10 +869,6 @@ export type EmailSendingAttachment = {
 
 export type EmailSendingItem = {
 	id: string;
-	/**
-	 * Name of the Send Email binding used.
-	 */
-	binding: string;
 	from: string;
 	to: Array<string>;
 	cc?: Array<string>;
@@ -883,7 +882,6 @@ export type EmailSendingItem = {
 
 export type EmailSendingDetail = {
 	id: string;
-	binding: string;
 	from: string;
 	to: Array<string>;
 	cc?: Array<string>;

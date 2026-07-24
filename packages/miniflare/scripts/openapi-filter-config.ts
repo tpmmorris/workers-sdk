@@ -1986,7 +1986,7 @@ const config = {
 				properties: {
 					action: {
 						type: "string",
-						enum: ["received", "rejected", "forwarded", "replied"],
+						enum: ["received", "unhandled", "rejected", "forwarded", "replied"],
 						description: "The action the handler took on the message.",
 					},
 					timestamp: {
@@ -2108,10 +2108,6 @@ const config = {
 				type: "object",
 				properties: {
 					id: { type: "string" },
-					binding: {
-						type: "string",
-						description: "Name of the send_email binding used.",
-					},
 					from: { type: "string" },
 					to: { type: "array", items: { type: "string" } },
 					cc: { type: "array", items: { type: "string" } },
@@ -2127,21 +2123,12 @@ const config = {
 						},
 					},
 				},
-				required: [
-					"id",
-					"binding",
-					"from",
-					"to",
-					"subject",
-					"sentAt",
-					"attachments",
-				],
+				required: ["id", "from", "to", "subject", "sentAt", "attachments"],
 			},
 			"email_sending-detail": {
 				type: "object",
 				properties: {
 					id: { type: "string" },
-					binding: { type: "string" },
 					from: { type: "string" },
 					to: { type: "array", items: { type: "string" } },
 					cc: { type: "array", items: { type: "string" } },
@@ -2168,15 +2155,7 @@ const config = {
 							"Raw MIME content, present when sent via the EmailMessage API.",
 					},
 				},
-				required: [
-					"id",
-					"binding",
-					"from",
-					"to",
-					"subject",
-					"sentAt",
-					"attachments",
-				],
+				required: ["id", "from", "to", "subject", "sentAt", "attachments"],
 			},
 		},
 	},
