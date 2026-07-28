@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { Button, Flow, cn } from "@cloudflare/kumo";
 import {
 	ArrowBendUpLeftIcon,
@@ -8,6 +7,7 @@ import {
 	ProhibitIcon,
 	WarningIcon,
 } from "@phosphor-icons/react";
+import { useState } from "react";
 import type { InfoEvent } from "./types";
 import type { JSX } from "react";
 
@@ -17,7 +17,11 @@ import type { JSX } from "react";
 
 const ACTION_CONFIG: Record<
 	InfoEvent["action"],
-	{ icon: React.ComponentType<{ className?: string; size?: number }>; label: string; color: string }
+	{
+		icon: React.ComponentType<{ className?: string; size?: number }>;
+		label: string;
+		color: string;
+	}
 > = {
 	received: {
 		icon: EnvelopeSimpleIcon,
@@ -67,11 +71,7 @@ function formatTimestamp(ts: string): string {
 	}
 }
 
-function EventIcon({
-	action,
-}: {
-	action: InfoEvent["action"];
-}): JSX.Element {
+function EventIcon({ action }: { action: InfoEvent["action"] }): JSX.Element {
 	const config = ACTION_CONFIG[action];
 	const Icon = config.icon;
 	return <Icon size={20} className={config.color} />;
@@ -84,11 +84,11 @@ const Field = ({
 	label: string;
 	children: React.ReactNode;
 }) => (
-	<div className="flex flex-col gap-1 min-w-0">
-		<span className="text-xs font-semibold text-kumo-subtle uppercase tracking-wide">
+	<div className="flex min-w-0 flex-col gap-1">
+		<span className="text-xs font-semibold tracking-wide text-kumo-subtle uppercase">
 			{label}
 		</span>
-		<span className="text-sm text-kumo-default break-words">{children}</span>
+		<span className="text-sm break-words text-kumo-default">{children}</span>
 	</div>
 );
 
@@ -140,14 +140,16 @@ export function EventNode({ event }: EventNodeProps): JSX.Element {
 			? event.details.to
 			: undefined;
 	const replyMessageId =
-		event.action === "replied" &&
-		typeof event.details?.messageId === "string"
+		event.action === "replied" && typeof event.details?.messageId === "string"
 			? event.details.messageId
 			: undefined;
 	const hasReplyFields =
-		replyFrom !== undefined || replyTo !== undefined || replyMessageId !== undefined;
+		replyFrom !== undefined ||
+		replyTo !== undefined ||
+		replyMessageId !== undefined;
 
-	const isExpandable = replyRaw !== undefined || hasInlineDetails || hasReplyFields;
+	const isExpandable =
+		replyRaw !== undefined || hasInlineDetails || hasReplyFields;
 
 	return (
 		<Flow.Node
@@ -157,16 +159,16 @@ export function EventNode({ event }: EventNodeProps): JSX.Element {
 					data-action={event.action}
 					data-open={open || undefined}
 					className={cn(
-						"list-none rounded-lg bg-kumo-base ring ring-kumo-hairline shadow-sm",
-						"min-w-[280px] max-w-[420px]"
+						"list-none rounded-lg bg-kumo-base shadow-sm ring ring-kumo-hairline",
+						"max-w-[420px] min-w-[280px]"
 					)}
 				>
 					<Flow.Anchor
 						render={
-							<div className="flex items-center gap-3 px-4 py-2 min-h-12">
+							<div className="flex min-h-12 items-center gap-3 px-4 py-2">
 								<EventIcon action={event.action} />
-								<div className="flex flex-col min-w-0 flex-1">
-									<span className="text-sm font-medium text-kumo-default truncate">
+								<div className="flex min-w-0 flex-1 flex-col">
+									<span className="truncate text-sm font-medium text-kumo-default">
 										{config.label}
 									</span>
 									<span className="text-xs text-kumo-subtle">
@@ -180,9 +182,7 @@ export function EventNode({ event }: EventNodeProps): JSX.Element {
 										onClick={() => setOpen((prev) => !prev)}
 										aria-expanded={open}
 										aria-label={
-											open
-												? "Collapse event details"
-												: "Expand event details"
+											open ? "Collapse event details" : "Expand event details"
 										}
 									>
 										<CaretDownIcon
@@ -200,14 +200,15 @@ export function EventNode({ event }: EventNodeProps): JSX.Element {
 					{open && (
 						<div data-testid="log-detail-event-body">
 							{(hasInlineDetails || hasReplyFields) && (
-								<div className="grid grid-cols-2 gap-4 px-4 py-3 border-t border-kumo-line">
+								<div className="grid grid-cols-2 gap-4 border-t border-kumo-line px-4 py-3">
 									{event.action === "replied" && (
 										<>
 											{replyFrom && <Field label="From">{replyFrom}</Field>}
 											{replyTo && <Field label="To">{replyTo}</Field>}
 										</>
 									)}
-									{hasInlineDetails && event.action !== "replied" &&
+									{hasInlineDetails &&
+										event.action !== "replied" &&
 										Object.entries(inlineDetails).map(([key, value]) => (
 											<Field key={key} label={key}>
 												{typeof value === "string"

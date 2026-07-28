@@ -16,11 +16,11 @@ const Row = ({
 	children: React.ReactNode;
 	className?: string;
 }) => (
-	<div className={`flex flex-col gap-1 min-w-0 ${className ?? ""}`}>
-		<span className="text-xs font-semibold text-kumo-subtle uppercase tracking-wide">
+	<div className={`flex min-w-0 flex-col gap-1 ${className ?? ""}`}>
+		<span className="text-xs font-semibold tracking-wide text-kumo-subtle uppercase">
 			{label}
 		</span>
-		<div className="text-sm text-kumo-default break-words">{children}</div>
+		<div className="text-sm break-words text-kumo-default">{children}</div>
 	</div>
 );
 
@@ -52,7 +52,7 @@ export function ConstantsCard({ message }: ConstantsCardProps) {
 		<LayerCard>
 			<LayerCard.Secondary>Message</LayerCard.Secondary>
 			<LayerCard.Primary>
-				<div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+				<div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
 					<Row label="Subject" className="sm:col-span-2">
 						{message.subject || "—"}
 					</Row>

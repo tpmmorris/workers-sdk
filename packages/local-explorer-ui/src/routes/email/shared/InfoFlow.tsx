@@ -37,7 +37,7 @@ export function InfoFlow({ message }: InfoFlowProps) {
 		<LayerCard>
 			<LayerCard.Secondary>Lifecycle</LayerCard.Secondary>
 			<LayerCard.Primary className="p-0">
-				<div className="p-4 bg-[radial-gradient(var(--color-kumo-subtle)_1px,transparent_1px)] bg-size-[16px_16px] rounded-b-lg">
+				<div className="rounded-b-lg bg-[radial-gradient(var(--color-kumo-subtle)_1px,transparent_1px)] bg-size-[16px_16px] p-4">
 					<Flow>
 						{firstRecipient.events.map((event) => (
 							<EventNode key={event.id} event={event} />

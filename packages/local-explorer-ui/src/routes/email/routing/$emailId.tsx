@@ -1,7 +1,5 @@
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
-import type { JSX } from "react";
 import { emailGetRouting } from "../../../api";
-import type { EmailRoutingAction } from "../../../api";
 import EmailIcon from "../../../assets/icons/email.svg?react";
 import { Breadcrumbs } from "../../../components/Breadcrumbs";
 import { NotFound } from "../../../components/NotFound";
@@ -9,7 +7,9 @@ import { ResourceError } from "../../../components/ResourceError";
 import { ConstantsCard } from "../shared/ConstantsCard";
 import { InfoFlow } from "../shared/InfoFlow";
 import { InfoLoading } from "../shared/InfoLoading";
+import type { EmailRoutingAction } from "../../../api";
 import type { InfoEvent, InfoMessage } from "../shared/types";
+import type { JSX } from "react";
 
 export const Route = createFileRoute("/email/routing/$emailId")({
 	component: EmailRoutingDetailView,
@@ -31,13 +31,17 @@ export const Route = createFileRoute("/email/routing/$emailId")({
 	},
 });
 
-function toInfoMessage(email: Awaited<ReturnType<typeof Route.useLoaderData>>["email"]): InfoMessage {
-	const events: InfoEvent[] = email.handlingPath.map((action: EmailRoutingAction, index: number) => ({
-		id: `${email.id}-${index}`,
-		action: action.action,
-		timestamp: action.timestamp,
-		details: action.details,
-	}));
+function toInfoMessage(
+	email: Awaited<ReturnType<typeof Route.useLoaderData>>["email"]
+): InfoMessage {
+	const events: InfoEvent[] = email.handlingPath.map(
+		(action: EmailRoutingAction, index: number) => ({
+			id: `${email.id}-${index}`,
+			action: action.action,
+			timestamp: action.timestamp,
+			details: action.details,
+		})
+	);
 
 	return {
 		id: email.id,
