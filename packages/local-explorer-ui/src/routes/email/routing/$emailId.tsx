@@ -47,6 +47,7 @@ function toInfoMessage(email: Awaited<ReturnType<typeof Route.useLoaderData>>["e
 		messageId: email.messageId,
 		receivedAt: email.receivedAt,
 		rawSize: email.rawSize,
+		attachments: email.attachments,
 		recipients: [
 			{
 				envelopeTos: email.to,

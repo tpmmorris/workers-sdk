@@ -5,6 +5,8 @@
  * email routing data model.
  */
 
+import type { EmailAttachment } from "../../../api";
+
 export interface InfoEvent {
 	/** Unique per-event key */
 	id: string;
@@ -35,5 +37,7 @@ export interface InfoMessage {
 	receivedAt: string;
 	/** Size in bytes */
 	rawSize: number;
+	/** Attachment metadata; the content itself is only in the raw MIME */
+	attachments: EmailAttachment[];
 	recipients: InfoRecipient[];
 }

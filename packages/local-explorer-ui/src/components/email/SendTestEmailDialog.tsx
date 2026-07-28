@@ -1,12 +1,40 @@
 import { Button, Dialog } from "@cloudflare/kumo";
-import { useCallback, useEffect, useRef, useState, type JSX } from "react";
+import { PaperclipIcon, TrashIcon } from "@phosphor-icons/react";
+import {
+	useCallback,
+	useEffect,
+	useRef,
+	useState,
+	type ChangeEvent,
+	type JSX,
+} from "react";
 import { emailSendRouting } from "../../api";
+import { formatSize } from "../../utils/format";
 import type { EmailSendRequest } from "../../api";
 
 interface SendTestEmailDialogProps {
 	onOpenChange: (open: boolean) => void;
 	onSent: () => void;
 	open: boolean;
+}
+
+type AttachmentInput = NonNullable<EmailSendRequest["attachments"]>[number];
+
+interface SelectedAttachment extends AttachmentInput {
+	size: number;
+}
+
+const MAX_TOTAL_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+
+async function readFileAsBase64(file: File): Promise<string> {
+	const bytes = new Uint8Array(await file.arrayBuffer());
+	// Chunked to stay clear of the argument-count limit on String.fromCharCode.
+	const chunkSize = 0x8000;
+	let binary = "";
+	for (let i = 0; i < bytes.length; i += chunkSize) {
+		binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+	}
+	return btoa(binary);
 }
 
 const inputClass =
@@ -59,7 +87,9 @@ export function SendTestEmailDialog({
 	const [headersError, setHeadersError] = useState<string | null>(null);
 	const [text, setText] = useState<string>("");
 	const [html, setHtml] = useState<string>("");
+	const [attachments, setAttachments] = useState<SelectedAttachment[]>([]);
 	const scrollContainerRef = useRef<HTMLDivElement>(null);
+	const fileInputRef = useRef<HTMLInputElement>(null);
 
 	useEffect(() => {
 		if (error) {
@@ -78,8 +108,53 @@ export function SendTestEmailDialog({
 		setHeadersError(null);
 		setText("");
 		setHtml("");
+		setAttachments([]);
 		setError(null);
 	}, []);
+
+	async function handleAttachmentsSelected(
+		e: ChangeEvent<HTMLInputElement>
+	): Promise<void> {
+		const files = [...(e.target.files ?? [])];
+		// Reset the input so re-selecting the same file still fires a change event.
+		e.target.value = "";
+		if (files.length === 0) {
+			return;
+		}
+
+		try {
+			const added = await Promise.all(
+				files.map(async (file) => ({
+					filename: file.name,
+					type: file.type || "application/octet-stream",
+					content: await readFileAsBase64(file),
+					size: file.size,
+				}))
+			);
+
+			const total = [...attachments, ...added].reduce(
+				(sum, attachment) => sum + attachment.size,
+				0
+			);
+			if (total > MAX_TOTAL_ATTACHMENT_BYTES) {
+				setError(
+					`Attachments must total less than ${formatSize(MAX_TOTAL_ATTACHMENT_BYTES)}.`
+				);
+				return;
+			}
+
+			setError(null);
+			setAttachments((current) => [...current, ...added]);
+		} catch (err) {
+			setError(
+				err instanceof Error ? err.message : "Failed to read the selected file."
+			);
+		}
+	}
+
+	function handleRemoveAttachment(index: number): void {
+		setAttachments((current) => current.filter((_, i) => i !== index));
+	}
 
 	function handleOpenChange(newOpen: boolean): void {
 		if (!newOpen) {
@@ -129,6 +204,11 @@ export function SendTestEmailDialog({
 		}
 		if (Object.keys(parsedHeaders.headers).length > 0) {
 			body.headers = parsedHeaders.headers;
+		}
+		if (attachments.length > 0) {
+			body.attachments = attachments.map(
+				({ size: _size, ...attachment }) => attachment
+			);
 		}
 
 		setSending(true);
@@ -318,6 +398,64 @@ export function SendTestEmailDialog({
 							rows={4}
 							value={html}
 						/>
+					</div>
+
+					<div>
+						<div className="mb-2 flex items-center justify-between">
+							<label className="text-sm font-medium text-kumo-default">
+								Attachments{" "}
+								<span className="font-normal text-kumo-subtle">(optional)</span>
+							</label>
+							<Button
+								variant="ghost"
+								onClick={() => fileInputRef.current?.click()}
+							>
+								<PaperclipIcon size={12} />
+								Add files
+							</Button>
+						</div>
+
+						<input
+							className="hidden"
+							multiple
+							onChange={(e) => void handleAttachmentsSelected(e)}
+							ref={fileInputRef}
+							type="file"
+						/>
+
+						{attachments.length === 0 ? (
+							<p className="text-sm text-kumo-subtle italic">No attachments</p>
+						) : (
+							<div className="space-y-2">
+								{attachments.map((attachment, index) => (
+									<div
+										key={`${attachment.filename}-${index}`}
+										className="flex items-center gap-2 rounded-lg border border-kumo-fill bg-kumo-base px-3 py-2"
+									>
+										<PaperclipIcon
+											size={14}
+											className="shrink-0 text-kumo-subtle"
+										/>
+										<div className="min-w-0 flex-1">
+											<p className="truncate text-sm text-kumo-default">
+												{attachment.filename}
+											</p>
+											<p className="text-xs text-kumo-subtle">
+												{attachment.type} &middot; {formatSize(attachment.size)}
+											</p>
+										</div>
+										<Button
+											variant="ghost"
+											shape="square"
+											onClick={() => handleRemoveAttachment(index)}
+											aria-label={`Remove ${attachment.filename}`}
+										>
+											<TrashIcon size={14} />
+										</Button>
+									</div>
+								))}
+							</div>
+						)}
 					</div>
 				</div>
 

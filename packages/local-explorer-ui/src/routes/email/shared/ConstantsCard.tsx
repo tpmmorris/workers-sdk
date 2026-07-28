@@ -1,4 +1,5 @@
 import { Badge, ClipboardText, LayerCard } from "@cloudflare/kumo";
+import { PaperclipIcon } from "@phosphor-icons/react";
 import { formatSize } from "../../../utils/format";
 import type { InfoMessage } from "./types";
 
@@ -68,6 +69,32 @@ export function ConstantsCard({ message }: ConstantsCardProps) {
 					</Row>
 					<Row label="Received">{formatTimestamp(message.receivedAt)}</Row>
 					<Row label="Size">{formatSize(message.rawSize)}</Row>
+					{message.attachments.length > 0 ? (
+						<Row label="Attachments" className="sm:col-span-2">
+							<div className="flex flex-col gap-1.5">
+								{message.attachments.map((attachment, index) => (
+									<div
+										className="flex min-w-0 items-center gap-2"
+										key={`${attachment.filename}-${index}`}
+									>
+										<PaperclipIcon
+											className="shrink-0 text-kumo-subtle"
+											size={14}
+										/>
+										<span className="truncate text-sm text-kumo-default">
+											{attachment.filename}
+										</span>
+										<span className="shrink-0 text-xs text-kumo-subtle">
+											{attachment.contentType}
+										</span>
+										<span className="ml-auto shrink-0 text-xs text-kumo-subtle">
+											{formatSize(attachment.size)}
+										</span>
+									</div>
+								))}
+							</div>
+						</Row>
+					) : null}
 				</div>
 			</LayerCard.Primary>
 		</LayerCard>
