@@ -45,7 +45,7 @@ const EVENT_CONFIG: Record<
 	},
 	unhandled: {
 		icon: WarningIcon,
-		label: "Unhandled (no email() handler)",
+		label: "Unhandled (Worker has no email() handler)",
 		color: "text-kumo-danger",
 	},
 };
