@@ -7,7 +7,7 @@ import { ResourceError } from "../../../components/ResourceError";
 import { ConstantsCard } from "../shared/ConstantsCard";
 import { InfoFlow } from "../shared/InfoFlow";
 import { InfoLoading } from "../shared/InfoLoading";
-import type { EmailRoutingAction } from "../../../api";
+import type { EmailRoutingDetail } from "../../../api";
 import type { InfoEvent, InfoMessage } from "../shared/types";
 import type { JSX } from "react";
 
@@ -31,17 +31,23 @@ export const Route = createFileRoute("/email/routing/$emailId")({
 	},
 });
 
-function toInfoMessage(
-	email: Awaited<ReturnType<typeof Route.useLoaderData>>["email"]
-): InfoMessage {
-	const events: InfoEvent[] = email.handlingPath.map(
-		(action: EmailRoutingAction, index: number) => ({
-			id: `${email.id}-${index}`,
-			action: action.action,
-			timestamp: action.timestamp,
-			details: action.details,
-		})
-	);
+function toInfoMessage(email: EmailRoutingDetail): InfoMessage {
+	const events: InfoEvent[] = email.events.map((event, index) => ({
+		id: `${email.id}-${index}`,
+		type: event.type,
+		timestamp: event.timestamp,
+		// `forward`/`reply` events carry a messageId correlating with the full
+		// payload; `reject` events carry the message-level reject reason.
+		forward:
+			event.type === "forward"
+				? email.forwards.find((f) => f.messageId === event.messageId)
+				: undefined,
+		reply:
+			event.type === "reply"
+				? email.replies.find((r) => r.messageId === event.messageId)
+				: undefined,
+		rejectReason: event.type === "reject" ? email.rejectReason : undefined,
+	}));
 
 	return {
 		id: email.id,

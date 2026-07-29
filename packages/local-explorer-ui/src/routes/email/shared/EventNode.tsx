@@ -12,11 +12,11 @@ import type { InfoEvent } from "./types";
 import type { JSX } from "react";
 
 // ---------------------------------------------------------------------------
-// Action visual mapping
+// Event visual mapping
 // ---------------------------------------------------------------------------
 
-const ACTION_CONFIG: Record<
-	InfoEvent["action"],
+const EVENT_CONFIG: Record<
+	InfoEvent["type"],
 	{
 		icon: React.ComponentType<{ className?: string; size?: number }>;
 		label: string;
@@ -28,17 +28,17 @@ const ACTION_CONFIG: Record<
 		label: "Received",
 		color: "text-kumo-success",
 	},
-	forwarded: {
+	forward: {
 		icon: ArrowUpRightIcon,
 		label: "Forwarded",
 		color: "text-kumo-link",
 	},
-	replied: {
+	reply: {
 		icon: ArrowBendUpLeftIcon,
 		label: "Replied",
 		color: "text-kumo-link",
 	},
-	rejected: {
+	reject: {
 		icon: ProhibitIcon,
 		label: "Rejected",
 		color: "text-kumo-danger",
@@ -71,8 +71,8 @@ function formatTimestamp(ts: string): string {
 	}
 }
 
-function EventIcon({ action }: { action: InfoEvent["action"] }): JSX.Element {
-	const config = ACTION_CONFIG[action];
+function EventIcon({ type }: { type: InfoEvent["type"] }): JSX.Element {
+	const config = EVENT_CONFIG[type];
 	const Icon = config.icon;
 	return <Icon size={20} className={config.color} />;
 }
@@ -111,52 +111,25 @@ interface EventNodeProps {
  */
 export function EventNode({ event }: EventNodeProps): JSX.Element {
 	const [open, setOpen] = useState(false);
-	const config = ACTION_CONFIG[event.action];
+	const config = EVENT_CONFIG[event.type];
 
-	const replyRaw =
-		event.action === "replied" && typeof event.details?.raw === "string"
-			? event.details.raw
-			: undefined;
+	const { forward, reply, rejectReason } = event;
+	// The forwarded message's added headers, as [key, value] pairs.
+	const forwardHeaders = forward?.headers ?? [];
+	const hasForwardFields =
+		forward !== undefined &&
+		(forward.recipient.length > 0 || forwardHeaders.length > 0);
+	const hasReplyFields = reply !== undefined;
+	const hasRejectFields = rejectReason !== undefined && rejectReason.length > 0;
 
-	// Any remaining details are shown as field rows. The reply's
-	// raw MIME is excluded — it has its own presentation.
-	const inlineDetails = event.details
-		? Object.fromEntries(
-				Object.entries(event.details).filter(
-					([key]) => key !== "raw" && key !== "subject"
-				)
-			)
-		: undefined;
-	const hasInlineDetails =
-		inlineDetails && Object.keys(inlineDetails).length > 0;
-
-	// Custom reply body fields extracted from details.
-	const replyFrom =
-		event.action === "replied" && typeof event.details?.from === "string"
-			? event.details.from
-			: undefined;
-	const replyTo =
-		event.action === "replied" && typeof event.details?.to === "string"
-			? event.details.to
-			: undefined;
-	const replyMessageId =
-		event.action === "replied" && typeof event.details?.messageId === "string"
-			? event.details.messageId
-			: undefined;
-	const hasReplyFields =
-		replyFrom !== undefined ||
-		replyTo !== undefined ||
-		replyMessageId !== undefined;
-
-	const isExpandable =
-		replyRaw !== undefined || hasInlineDetails || hasReplyFields;
+	const isExpandable = hasForwardFields || hasReplyFields || hasRejectFields;
 
 	return (
 		<Flow.Node
 			render={
 				<li
 					data-testid="log-detail-event-node"
-					data-action={event.action}
+					data-event-type={event.type}
 					data-open={open || undefined}
 					className={cn(
 						"list-none rounded-lg bg-kumo-base shadow-sm ring ring-kumo-hairline",
@@ -166,7 +139,7 @@ export function EventNode({ event }: EventNodeProps): JSX.Element {
 					<Flow.Anchor
 						render={
 							<div className="flex min-h-12 items-center gap-3 px-4 py-2">
-								<EventIcon action={event.action} />
+								<EventIcon type={event.type} />
 								<div className="flex min-w-0 flex-1 flex-col">
 									<span className="truncate text-sm font-medium text-kumo-default">
 										{config.label}
@@ -199,28 +172,27 @@ export function EventNode({ event }: EventNodeProps): JSX.Element {
 					/>
 					{open && (
 						<div data-testid="log-detail-event-body">
-							{(hasInlineDetails || hasReplyFields) && (
+							{(hasForwardFields || hasRejectFields) && (
 								<div className="grid grid-cols-2 gap-4 border-t border-kumo-line px-4 py-3">
-									{event.action === "replied" && (
-										<>
-											{replyFrom && <Field label="From">{replyFrom}</Field>}
-											{replyTo && <Field label="To">{replyTo}</Field>}
-										</>
+									{forward && (
+										<Field label="Recipient">{forward.recipient}</Field>
 									)}
-									{hasInlineDetails &&
-										event.action !== "replied" &&
-										Object.entries(inlineDetails).map(([key, value]) => (
-											<Field key={key} label={key}>
-												{typeof value === "string"
-													? value
-													: JSON.stringify(value)}
-											</Field>
-										))}
+									{forwardHeaders.map(([key, value]) => (
+										<Field key={key} label={key ?? ""}>
+											{value ?? ""}
+										</Field>
+									))}
+									{rejectReason && <Field label="Reason">{rejectReason}</Field>}
 								</div>
 							)}
-							{replyRaw && (
+							{reply && (
+								<div className="grid grid-cols-2 gap-4 border-t border-kumo-line px-4 py-3">
+									<Field label="From">{reply.sender}</Field>
+								</div>
+							)}
+							{reply?.raw && (
 								<pre className="max-h-[40vh] overflow-auto border-t border-kumo-line bg-kumo-elevated p-4 font-mono text-xs whitespace-pre-wrap text-kumo-default">
-									{replyRaw}
+									{reply.raw}
 								</pre>
 							)}
 						</div>

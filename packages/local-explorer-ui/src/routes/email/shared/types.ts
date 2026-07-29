@@ -5,19 +5,26 @@
  * email routing data model.
  */
 
-import type { EmailAttachment } from "../../../api";
+import type {
+	EmailAttachment,
+	EmailHandlerEvent,
+	EmailHandlerForward,
+	EmailHandlerReply,
+} from "../../../api";
 
 export interface InfoEvent {
 	/** Unique per-event key */
 	id: string;
-	/** The action the handler took on the message */
-	action: "received" | "unhandled" | "rejected" | "forwarded" | "replied";
-	/** ISO 8601 timestamp of when the action occurred */
+	/** The kind of event the handler produced */
+	type: EmailHandlerEvent["type"];
+	/** ISO 8601 timestamp of when the event occurred */
 	timestamp: string;
-	/** Action-specific details (e.g. forward recipient, raw MIME) */
-	details?: {
-		[key: string]: unknown;
-	};
+	/** Payload for a `forward` event, correlated by messageId */
+	forward?: EmailHandlerForward;
+	/** Payload for a `reply` event, correlated by messageId */
+	reply?: EmailHandlerReply;
+	/** Reason for a `reject` event */
+	rejectReason?: string;
 }
 
 export interface InfoRecipient {
