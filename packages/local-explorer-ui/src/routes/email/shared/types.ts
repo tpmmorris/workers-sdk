@@ -12,6 +12,16 @@ import type {
 	EmailHandlerReply,
 } from "../../../api";
 
+/**
+ * Derives the identifier used in email detail URLs (and the store lookup key)
+ * from an RFC Message-ID, by stripping the enclosing angle brackets so the
+ * value is safe to place in a URL path segment. Mirrors the server's
+ * `messageIdToStorageId`.
+ */
+export function toEmailId(messageId: string): string {
+	return messageId.replace(/^<|>$/g, "");
+}
+
 export interface InfoEvent {
 	/** Unique per-event key */
 	id: string;

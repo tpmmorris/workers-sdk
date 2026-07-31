@@ -14,6 +14,7 @@ import { ResourceError } from "../../components/ResourceError";
 import { getSelectedWorker } from "../../components/WorkerSelector";
 import { timeAgo } from "../../components/workflows/helpers";
 import { withMinimumDelay } from "../../utils/async";
+import { toEmailId } from "./shared/types";
 import type { EmailSendingDetail, EmailSendingItem } from "../../api";
 
 export const Route = createFileRoute("/email/sending")({
@@ -253,8 +254,8 @@ function EmailSendingView(): JSX.Element {
 						{emails.map((email) => (
 							<div
 								className="grid h-12 cursor-pointer grid-cols-[1fr_1fr_2fr_auto] items-center gap-3 border-b border-kumo-fill px-4 transition-colors last:border-b-0 hover:bg-kumo-fill"
-								key={email.id}
-								onClick={() => void handleRowClick(email.id)}
+								key={email.messageId}
+								onClick={() => void handleRowClick(toEmailId(email.messageId))}
 							>
 								<span className="truncate text-sm text-kumo-default">
 									{email.from}
