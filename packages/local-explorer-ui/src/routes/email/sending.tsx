@@ -166,6 +166,7 @@ function EmailSendingView(): JSX.Element {
 	const [emails, setEmails] = useState<EmailSendingItem[]>(loaderData.emails);
 	const [refreshing, setRefreshing] = useState<boolean>(false);
 	const [selected, setSelected] = useState<EmailSendingDetail | null>(null);
+	const [error, setError] = useState<string | null>(null);
 
 	// The "Sending" view requires at least one send_email binding on the
 	// selected worker. Without one, there is no sending service to show.
@@ -188,19 +189,32 @@ function EmailSendingView(): JSX.Element {
 
 	const handleRefresh = useCallback(async () => {
 		setRefreshing(true);
+		setError(null);
 		try {
 			await withMinimumDelay(fetchEmails());
+		} catch (e) {
+			setError(
+				e instanceof Error ? e.message : "Failed to refresh sent emails."
+			);
 		} finally {
 			setRefreshing(false);
 		}
 	}, [fetchEmails]);
 
 	async function handleRowClick(emailId: string): Promise<void> {
-		const response = await emailGetSending({
-			path: { email_id: emailId },
-		});
-		if (response.data?.result) {
-			setSelected(response.data.result);
+		setError(null);
+		try {
+			const response = await emailGetSending({
+				path: { email_id: emailId },
+			});
+			if (response.data?.result) {
+				setSelected(response.data.result);
+			}
+		} catch (e) {
+			// Surface the failure instead of silently dropping the click.
+			setError(
+				e instanceof Error ? e.message : "Failed to load the sent email."
+			);
 		}
 	}
 
@@ -243,6 +257,15 @@ function EmailSendingView(): JSX.Element {
 						/>
 					</Button>
 				</div>
+
+				{error && (
+					<div
+						className="mb-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-600 dark:text-red-400"
+						role="alert"
+					>
+						{error}
+					</div>
+				)}
 
 				{emails.length === 0 ? (
 					<div className="rounded-lg border border-kumo-fill bg-kumo-elevated px-5 py-8 text-center text-sm text-kumo-subtle">

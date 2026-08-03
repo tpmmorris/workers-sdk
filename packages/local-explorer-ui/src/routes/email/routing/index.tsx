@@ -28,6 +28,7 @@ function EmailRoutingView(): JSX.Element {
 	const [emails, setEmails] = useState<EmailRoutingItem[]>(loaderData.emails);
 	const [dialogOpen, setDialogOpen] = useState<boolean>(false);
 	const [refreshing, setRefreshing] = useState<boolean>(false);
+	const [refreshError, setRefreshError] = useState<string | null>(null);
 
 	useEffect(() => {
 		setEmails(loaderData.emails);
@@ -40,8 +41,15 @@ function EmailRoutingView(): JSX.Element {
 
 	const handleRefresh = useCallback(async () => {
 		setRefreshing(true);
+		setRefreshError(null);
 		try {
 			await withMinimumDelay(fetchEmails());
+		} catch (e) {
+			// Keep the existing rows and surface the failure rather than leaving an
+			// unhandled rejection or silently doing nothing.
+			setRefreshError(
+				e instanceof Error ? e.message : "Failed to refresh received emails."
+			);
 		} finally {
 			setRefreshing(false);
 		}
@@ -90,6 +98,15 @@ function EmailRoutingView(): JSX.Element {
 						</Button>
 					</div>
 				</div>
+
+				{refreshError && (
+					<div
+						className="mb-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-600 dark:text-red-400"
+						role="alert"
+					>
+						{refreshError}
+					</div>
+				)}
 
 				{emails.length === 0 ? (
 					<div className="rounded-lg border border-kumo-fill bg-kumo-elevated px-5 py-8 text-center text-sm text-kumo-subtle">
