@@ -16,6 +16,7 @@ interface SendTestEmailDialogProps {
 	onOpenChange: (open: boolean) => void;
 	onSent: () => void;
 	open: boolean;
+	worker?: string;
 }
 
 type AttachmentInput = NonNullable<EmailSendRequest["attachments"]>[number];
@@ -78,6 +79,7 @@ export function SendTestEmailDialog({
 	onOpenChange,
 	onSent,
 	open,
+	worker,
 }: SendTestEmailDialogProps): JSX.Element {
 	const [sending, setSending] = useState<boolean>(false);
 	const [error, setError] = useState<string | null>(null);
@@ -220,6 +222,7 @@ export function SendTestEmailDialog({
 		try {
 			const { error: sendError, response } = await emailSendRouting({
 				body,
+				query: { worker },
 				throwOnError: false,
 			});
 			if (sendError || !response.ok) {

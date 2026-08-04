@@ -20,8 +20,11 @@ import type { EmailSendingDetail, EmailSendingItem } from "../../api";
 export const Route = createFileRoute("/email/sending")({
 	component: EmailSendingView,
 	errorComponent: ResourceError,
-	loader: async () => {
-		const response = await emailListSending();
+	loaderDeps: ({ search }) => ({ worker: search.worker }),
+	loader: async ({ deps }) => {
+		const response = await emailListSending({
+			query: { worker: deps.worker },
+		});
 		return { emails: response.data?.result ?? [] };
 	},
 	validateSearch: (search: Record<string, unknown>): { worker?: string } => ({
@@ -162,6 +165,7 @@ function EmailSendingView(): JSX.Element {
 	const loaderData = Route.useLoaderData();
 	const rootData = rootRoute.useLoaderData();
 	const routerState = useRouterState();
+	const { worker } = Route.useSearch();
 
 	const [emails, setEmails] = useState<EmailSendingItem[]>(loaderData.emails);
 	const [refreshing, setRefreshing] = useState<boolean>(false);
@@ -171,11 +175,11 @@ function EmailSendingView(): JSX.Element {
 	// The "Sending" view requires at least one send_email binding on the
 	// selected worker. Without one, there is no sending service to show.
 	const hasSendingService = useMemo(() => {
-		const worker = getSelectedWorker(
+		const selectedWorker = getSelectedWorker(
 			rootData.workers,
 			routerState.location.searchStr
 		);
-		return (worker?.bindings?.sendEmail?.length ?? 0) > 0;
+		return (selectedWorker?.bindings?.sendEmail?.length ?? 0) > 0;
 	}, [rootData.workers, routerState.location.searchStr]);
 
 	useEffect(() => {
@@ -183,9 +187,9 @@ function EmailSendingView(): JSX.Element {
 	}, [loaderData]);
 
 	const fetchEmails = useCallback(async (): Promise<void> => {
-		const response = await emailListSending();
+		const response = await emailListSending({ query: { worker } });
 		setEmails(response.data?.result ?? []);
-	}, []);
+	}, [worker]);
 
 	const handleRefresh = useCallback(async () => {
 		setRefreshing(true);
@@ -206,6 +210,7 @@ function EmailSendingView(): JSX.Element {
 		try {
 			const response = await emailGetSending({
 				path: { email_id: emailId },
+				query: { worker },
 			});
 			if (response.data?.result) {
 				setSelected(response.data.result);

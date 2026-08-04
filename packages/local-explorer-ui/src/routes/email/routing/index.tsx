@@ -15,14 +15,18 @@ import type { EmailRoutingItem } from "../../../api";
 export const Route = createFileRoute("/email/routing/")({
 	component: EmailRoutingView,
 	errorComponent: ResourceError,
-	loader: async () => {
-		const response = await emailListRouting();
+	loaderDeps: ({ search }) => ({ worker: search.worker }),
+	loader: async ({ deps }) => {
+		const response = await emailListRouting({
+			query: { worker: deps.worker },
+		});
 		return { emails: response.data?.result ?? [] };
 	},
 });
 
 function EmailRoutingView(): JSX.Element {
 	const loaderData = Route.useLoaderData();
+	const { worker } = Route.useSearch();
 	const navigate = useNavigate();
 
 	const [emails, setEmails] = useState<EmailRoutingItem[]>(loaderData.emails);
@@ -35,9 +39,9 @@ function EmailRoutingView(): JSX.Element {
 	}, [loaderData]);
 
 	const fetchEmails = useCallback(async (): Promise<void> => {
-		const response = await emailListRouting();
+		const response = await emailListRouting({ query: { worker } });
 		setEmails(response.data?.result ?? []);
-	}, []);
+	}, [worker]);
 
 	const handleRefresh = useCallback(async () => {
 		setRefreshing(true);
@@ -145,6 +149,7 @@ function EmailRoutingView(): JSX.Element {
 				onOpenChange={setDialogOpen}
 				onSent={() => void handleRefresh()}
 				open={dialogOpen}
+				worker={worker}
 			/>
 		</>
 	);
