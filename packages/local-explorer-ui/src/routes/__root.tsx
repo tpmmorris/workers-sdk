@@ -23,6 +23,7 @@ import {
 	loadThemeMode,
 	saveThemeMode,
 } from "../utils/theme-state";
+import { getWorkerChangeDestination } from "../utils/worker-navigation";
 import type { ThemeMode } from "../utils/theme-state";
 
 export const Route = createRootRoute({
@@ -76,9 +77,14 @@ function RootLayout() {
 		(workerName: string) => {
 			const currentSearch = new URLSearchParams(routerState.location.searchStr);
 			currentSearch.set("worker", workerName);
-			router.history.push(
-				`${window.location.pathname}?${currentSearch.toString()}`
+			// When viewing a specific email on the routing detail page, the selected
+			// email belongs to the previous worker and won't exist under the new one.
+			// Send the user back to the parent list page for the interface they're
+			// using ("Routing" or "Sending") while preserving the worker selection.
+			const destinationPath = getWorkerChangeDestination(
+				window.location.pathname
 			);
+			router.history.push(`${destinationPath}?${currentSearch.toString()}`);
 		},
 		[router, routerState.location.searchStr]
 	);
