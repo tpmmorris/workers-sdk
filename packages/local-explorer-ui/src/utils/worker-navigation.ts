@@ -12,8 +12,9 @@ const EMAIL_DETAIL_PARENTS = ["/email/routing", "/email/sending"] as const;
  * returns to the interface's parent list page ("Routing" or "Sending"). All
  * other paths are preserved as-is.
  *
- * The `pathname` includes the router basepath (e.g. "/cdn-cgi/explorer"), so
- * the email segments are matched anywhere in the path rather than at the start.
+ * The `pathname` includes the router basepath (e.g. "/cdn-cgi/local/explorer"),
+ * so the email segments are matched anywhere in the path rather than at the
+ * start.
  */
 export function getWorkerChangeDestination(pathname: string): string {
 	for (const parent of EMAIL_DETAIL_PARENTS) {

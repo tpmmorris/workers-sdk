@@ -21,9 +21,9 @@ describe("getWorkerChangeDestination", () => {
 	test("preserves the router basepath when redirecting", ({ expect }) => {
 		expect(
 			getWorkerChangeDestination(
-				"/cdn-cgi/explorer/email/routing/some-email-id"
+				"/cdn-cgi/local/explorer/email/routing/some-email-id"
 			)
-		).toBe("/cdn-cgi/explorer/email/routing");
+		).toBe("/cdn-cgi/local/explorer/email/routing");
 	});
 
 	test("leaves the parent list pages unchanged", ({ expect }) => {
@@ -43,8 +43,8 @@ describe("getWorkerChangeDestination", () => {
 		expect(getWorkerChangeDestination("/kv/my-namespace")).toBe(
 			"/kv/my-namespace"
 		);
-		expect(getWorkerChangeDestination("/cdn-cgi/explorer/")).toBe(
-			"/cdn-cgi/explorer/"
+		expect(getWorkerChangeDestination("/cdn-cgi/local/explorer/")).toBe(
+			"/cdn-cgi/local/explorer/"
 		);
 	});
 });

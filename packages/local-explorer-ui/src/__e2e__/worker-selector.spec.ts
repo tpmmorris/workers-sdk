@@ -1,9 +1,9 @@
 import { afterEach, describe, test } from "vitest";
 import { page, viteUrl } from "./utils";
 
-const WORKERS_ROUTE = "**/cdn-cgi/explorer/api/local/workers";
+const WORKERS_ROUTE = "**/cdn-cgi/local/explorer/api/local/workers";
 const EMAIL_ROUTING_DETAIL_ROUTE =
-	"**/cdn-cgi/explorer/api/email/routing/test-email-id*";
+	"**/cdn-cgi/local/explorer/api/email/routing/test-email-id*";
 
 function createWorkers(count: number) {
 	return Array.from({ length: count }, (_, index) => ({
@@ -165,7 +165,7 @@ describe("worker selector", () => {
 		await loadWorkers(2);
 		await page.goto(
 			new URL(
-				"/cdn-cgi/explorer/email/routing/test-email-id?worker=worker-1",
+				"/cdn-cgi/local/explorer/email/routing/test-email-id?worker=worker-1",
 				viteUrl
 			).toString()
 		);

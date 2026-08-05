@@ -186,6 +186,10 @@ function EmailSendingView(): JSX.Element {
 		setEmails(loaderData.emails);
 	}, [loaderData]);
 
+	useEffect(() => {
+		setSelected(null);
+	}, [worker]);
+
 	const fetchEmails = useCallback(async (): Promise<void> => {
 		const response = await emailListSending({ query: { worker } });
 		setEmails(response.data?.result ?? []);
