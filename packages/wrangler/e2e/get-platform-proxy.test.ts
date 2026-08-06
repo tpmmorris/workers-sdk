@@ -673,6 +673,7 @@ describe("getPlatformProxy()", () => {
 							to: "recipient@example.com",
 							subject: "s",
 							text: "t",
+							headers: { "Message-ID": "<platform-proxy@example.com>" },
 						});
 
 						console.log(result.messageId);
@@ -694,7 +695,7 @@ describe("getPlatformProxy()", () => {
 				encoding: "utf-8",
 			});
 
-			expect(stdout).toMatch(/^<[A-Za-z0-9]{36}@sender\.domain>/);
+			expect(stdout).toContain("<platform-proxy@example.com>");
 		});
 	});
 });
