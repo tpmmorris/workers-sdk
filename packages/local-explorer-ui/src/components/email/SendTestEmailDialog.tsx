@@ -16,6 +16,7 @@ interface SendTestEmailDialogProps {
 	onOpenChange: (open: boolean) => void;
 	onSent: () => void;
 	open: boolean;
+	worker?: string;
 }
 
 type AttachmentInput = NonNullable<EmailSendRequest["attachments"]>[number];
@@ -24,7 +25,11 @@ interface SelectedAttachment extends AttachmentInput {
 	size: number;
 }
 
-const MAX_TOTAL_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+// The server caps the whole composed MIME message at 1 MiB. Attachments are
+// base64-encoded in that message (~33% larger) alongside headers and bodies, so
+// the raw attachment budget is kept below the 1 MiB cap with headroom to avoid
+// a confusing server-side rejection after upload.
+const MAX_TOTAL_ATTACHMENT_BYTES = 700 * 1024;
 
 async function readFileAsBase64(file: File): Promise<string> {
 	const bytes = new Uint8Array(await file.arrayBuffer());
@@ -74,6 +79,7 @@ export function SendTestEmailDialog({
 	onOpenChange,
 	onSent,
 	open,
+	worker,
 }: SendTestEmailDialogProps): JSX.Element {
 	const [sending, setSending] = useState<boolean>(false);
 	const [error, setError] = useState<string | null>(null);
@@ -216,6 +222,7 @@ export function SendTestEmailDialog({
 		try {
 			const { error: sendError, response } = await emailSendRouting({
 				body,
+				query: { worker },
 				throwOnError: false,
 			});
 			if (sendError || !response.ok) {

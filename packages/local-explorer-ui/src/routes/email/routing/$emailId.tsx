@@ -17,9 +17,11 @@ export const Route = createFileRoute("/email/routing/$emailId")({
 	errorComponent: ResourceError,
 	notFoundComponent: NotFound,
 	pendingComponent: InfoLoading,
-	loader: async ({ params }) => {
+	loaderDeps: ({ search }) => ({ worker: search.worker }),
+	loader: async ({ params, deps }) => {
 		const response = await emailGetRouting({
 			path: { email_id: params.emailId },
+			query: { worker: deps.worker },
 			throwOnError: false,
 		});
 		if (response.response?.status === 404) {
