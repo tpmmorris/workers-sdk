@@ -2,6 +2,8 @@ import { afterEach, describe, test } from "vitest";
 import { page, viteUrl } from "./utils";
 
 const WORKERS_ROUTE = "**/cdn-cgi/local/explorer/api/local/workers";
+const EMAIL_ROUTING_DETAIL_ROUTE =
+	"**/cdn-cgi/local/explorer/api/email/routing/test-email-id*";
 
 function createWorkers(count: number) {
 	return Array.from({ length: count }, (_, index) => ({
@@ -32,8 +34,34 @@ function waitForWorkersResponse() {
 	);
 }
 
+async function mockEmailRoutingDetail(): Promise<void> {
+	await page.route(EMAIL_ROUTING_DETAIL_ROUTE, async (route) => {
+		await route.fulfill({
+			contentType: "application/json",
+			body: JSON.stringify({
+				errors: [],
+				messages: [],
+				result: {
+					messageId: "<test-email-id>",
+					from: "sender@example.com",
+					to: "recipient@example.com",
+					subject: "Test email",
+					receivedAt: "2024-01-01T00:00:00.000Z",
+					rawSize: 42,
+					attachments: [],
+					events: [],
+					forwards: [],
+					replies: [],
+				},
+				success: true,
+			}),
+		});
+	});
+}
+
 afterEach(async () => {
 	await page.unroute(WORKERS_ROUTE);
+	await page.unroute(EMAIL_ROUTING_DETAIL_ROUTE);
 });
 
 describe("worker selector", () => {
@@ -128,5 +156,33 @@ describe("worker selector", () => {
 			.toBe("worker-12");
 		await page.getByRole("combobox").getByText("worker-12").waitFor();
 		await page.waitForLoadState("networkidle");
+	});
+
+	test("returns to the routing list when switching workers on the email detail page", async ({
+		expect,
+	}) => {
+		await mockEmailRoutingDetail();
+		await loadWorkers(2);
+		await page.goto(
+			new URL(
+				"/cdn-cgi/local/explorer/email/routing/test-email-id?worker=worker-1",
+				viteUrl
+			).toString()
+		);
+		await page.waitForLoadState("networkidle");
+
+		const workersResponse = waitForWorkersResponse();
+		await page.getByRole("combobox").click();
+		await page.getByRole("option", { name: "worker-2" }).click();
+		await workersResponse;
+
+		// Switching workers on the detail page redirects back to the parent
+		// "Routing" list, carrying the newly selected worker forward.
+		await expect
+			.poll(() => new URL(page.url()).pathname)
+			.toMatch(/\/email\/routing$/);
+		await expect
+			.poll(() => new URL(page.url()).searchParams.get("worker"))
+			.toBe("worker-2");
 	});
 });

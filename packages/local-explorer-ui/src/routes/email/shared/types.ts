@@ -13,10 +13,9 @@ import type {
 } from "../../../api";
 
 /**
- * Derives the identifier used in email detail URLs (and the store lookup key)
- * from an RFC Message-ID, by stripping the enclosing angle brackets so the
- * value is safe to place in a URL path segment. Mirrors the server's
- * `messageIdToStorageId`.
+ * Derives the public identifier used in email detail URLs from an RFC
+ * Message-ID. The server converts this bracket-stripped value into its local
+ * storage ID.
  */
 export function toEmailId(messageId: string): string {
 	return messageId.replace(/^<|>$/g, "");
