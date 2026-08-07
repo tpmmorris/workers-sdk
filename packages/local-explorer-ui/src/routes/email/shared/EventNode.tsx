@@ -45,7 +45,7 @@ const EVENT_CONFIG: Record<
 	},
 	unhandled: {
 		icon: WarningIcon,
-		label: "Unhandled (no email() handler)",
+		label: "Unhandled (Worker has no email() handler)",
 		color: "text-kumo-danger",
 	},
 };
@@ -188,6 +188,7 @@ export function EventNode({ event }: EventNodeProps): JSX.Element {
 							{reply && (
 								<div className="grid grid-cols-2 gap-4 border-t border-kumo-line px-4 py-3">
 									<Field label="From">{reply.sender}</Field>
+									<Field label="Message-ID">{reply.messageId}</Field>
 								</div>
 							)}
 							{reply?.raw && (

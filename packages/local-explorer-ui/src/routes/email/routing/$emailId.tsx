@@ -7,6 +7,7 @@ import { ResourceError } from "../../../components/ResourceError";
 import { ConstantsCard } from "../shared/ConstantsCard";
 import { InfoFlow } from "../shared/InfoFlow";
 import { InfoLoading } from "../shared/InfoLoading";
+import { toEmailId } from "../shared/types";
 import type { EmailRoutingDetail } from "../../../api";
 import type { InfoEvent, InfoMessage } from "../shared/types";
 import type { JSX } from "react";
@@ -32,8 +33,9 @@ export const Route = createFileRoute("/email/routing/$emailId")({
 });
 
 function toInfoMessage(email: EmailRoutingDetail): InfoMessage {
+	const emailId = toEmailId(email.messageId);
 	const events: InfoEvent[] = email.events.map((event, index) => ({
-		id: `${email.id}-${index}`,
+		id: `${emailId}-${index}`,
 		type: event.type,
 		timestamp: event.timestamp,
 		// `forward`/`reply` events carry a messageId correlating with the full
@@ -50,7 +52,7 @@ function toInfoMessage(email: EmailRoutingDetail): InfoMessage {
 	}));
 
 	return {
-		id: email.id,
+		id: emailId,
 		from: email.from,
 		to: email.to,
 		subject: email.subject,

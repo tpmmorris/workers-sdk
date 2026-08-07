@@ -38,7 +38,7 @@ async function readFileAsBase64(file: File): Promise<string> {
 }
 
 const inputClass =
-	"focus-visible:ring-kumo-ring w-full rounded-lg border border-kumo-fill bg-kumo-base px-3 py-2.5 text-sm text-kumo-default placeholder:text-kumo-subtle focus:border-kumo-brand focus:outline-none focus-visible:ring-2";
+	"focus-visible:ring-kumo-ring w-full rounded-lg border border-kumo-fill bg-kumo-base px-3 py-2.5 text-sm text-kumo-default placeholder:kumo-input-placeholder focus:border-kumo-brand focus:outline-none focus-visible:ring-2";
 
 function parseAddressList(value: string): string[] {
 	return value
