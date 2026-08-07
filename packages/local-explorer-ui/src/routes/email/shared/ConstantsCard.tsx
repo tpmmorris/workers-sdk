@@ -1,4 +1,5 @@
 import { Badge, ClipboardText, LayerCard } from "@cloudflare/kumo";
+import { PaperclipIcon } from "@phosphor-icons/react";
 import { formatSize } from "../../../utils/format";
 import type { InfoMessage } from "./types";
 
@@ -15,11 +16,11 @@ const Row = ({
 	children: React.ReactNode;
 	className?: string;
 }) => (
-	<div className={`flex flex-col gap-1 min-w-0 ${className ?? ""}`}>
-		<span className="text-xs font-semibold text-kumo-subtle uppercase tracking-wide">
+	<div className={`flex min-w-0 flex-col gap-1 ${className ?? ""}`}>
+		<span className="text-xs font-semibold tracking-wide text-kumo-subtle uppercase">
 			{label}
 		</span>
-		<div className="text-sm text-kumo-default break-words">{children}</div>
+		<div className="text-sm break-words text-kumo-default">{children}</div>
 	</div>
 );
 
@@ -51,7 +52,7 @@ export function ConstantsCard({ message }: ConstantsCardProps) {
 		<LayerCard>
 			<LayerCard.Secondary>Message</LayerCard.Secondary>
 			<LayerCard.Primary>
-				<div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+				<div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
 					<Row label="Subject" className="sm:col-span-2">
 						{message.subject || "—"}
 					</Row>
@@ -68,6 +69,32 @@ export function ConstantsCard({ message }: ConstantsCardProps) {
 					</Row>
 					<Row label="Received">{formatTimestamp(message.receivedAt)}</Row>
 					<Row label="Size">{formatSize(message.rawSize)}</Row>
+					{message.attachments.length > 0 ? (
+						<Row label="Attachments" className="sm:col-span-2">
+							<div className="flex flex-col gap-1.5">
+								{message.attachments.map((attachment, index) => (
+									<div
+										className="flex min-w-0 items-center gap-2"
+										key={`${attachment.filename}-${index}`}
+									>
+										<PaperclipIcon
+											className="shrink-0 text-kumo-subtle"
+											size={14}
+										/>
+										<span className="truncate text-sm text-kumo-default">
+											{attachment.filename}
+										</span>
+										<span className="shrink-0 text-xs text-kumo-subtle">
+											{attachment.contentType}
+										</span>
+										<span className="ml-auto shrink-0 text-xs text-kumo-subtle">
+											{formatSize(attachment.size)}
+										</span>
+									</div>
+								))}
+							</div>
+						</Row>
+					) : null}
 				</div>
 			</LayerCard.Primary>
 		</LayerCard>

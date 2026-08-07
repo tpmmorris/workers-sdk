@@ -1,7 +1,5 @@
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
-import type { JSX } from "react";
 import { emailGetRouting } from "../../../api";
-import type { EmailRoutingAction } from "../../../api";
 import EmailIcon from "../../../assets/icons/email.svg?react";
 import { Breadcrumbs } from "../../../components/Breadcrumbs";
 import { NotFound } from "../../../components/NotFound";
@@ -9,7 +7,9 @@ import { ResourceError } from "../../../components/ResourceError";
 import { ConstantsCard } from "../shared/ConstantsCard";
 import { InfoFlow } from "../shared/InfoFlow";
 import { InfoLoading } from "../shared/InfoLoading";
+import type { EmailRoutingDetail } from "../../../api";
 import type { InfoEvent, InfoMessage } from "../shared/types";
+import type { JSX } from "react";
 
 export const Route = createFileRoute("/email/routing/$emailId")({
 	component: EmailRoutingDetailView,
@@ -31,12 +31,22 @@ export const Route = createFileRoute("/email/routing/$emailId")({
 	},
 });
 
-function toInfoMessage(email: Awaited<ReturnType<typeof Route.useLoaderData>>["email"]): InfoMessage {
-	const events: InfoEvent[] = email.handlingPath.map((action: EmailRoutingAction, index: number) => ({
+function toInfoMessage(email: EmailRoutingDetail): InfoMessage {
+	const events: InfoEvent[] = email.events.map((event, index) => ({
 		id: `${email.id}-${index}`,
-		action: action.action,
-		timestamp: action.timestamp,
-		details: action.details,
+		type: event.type,
+		timestamp: event.timestamp,
+		// `forward`/`reply` events carry a messageId correlating with the full
+		// payload; `reject` events carry the message-level reject reason.
+		forward:
+			event.type === "forward"
+				? email.forwards.find((f) => f.messageId === event.messageId)
+				: undefined,
+		reply:
+			event.type === "reply"
+				? email.replies.find((r) => r.messageId === event.messageId)
+				: undefined,
+		rejectReason: event.type === "reject" ? email.rejectReason : undefined,
 	}));
 
 	return {
@@ -47,6 +57,7 @@ function toInfoMessage(email: Awaited<ReturnType<typeof Route.useLoaderData>>["e
 		messageId: email.messageId,
 		receivedAt: email.receivedAt,
 		rawSize: email.rawSize,
+		attachments: email.attachments,
 		recipients: [
 			{
 				envelopeTos: email.to,
