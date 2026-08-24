@@ -129,10 +129,35 @@ export function getAssetsOptions(opts: {
 	overrides?: Partial<AssetsOptions>;
 }): AssetsOptions | undefined {
 	const assetsDir = validateAssetsOptions(opts);
-	return resolveAssetOptions(
+	const resolved = resolveAssetOptions(
 		{ assetsDir, main: opts.args.script ?? opts.config.main },
 		opts.config
 	);
+	if (!resolved) {
+		return;
+	}
+
+	const assetConfig = {
+		...resolved.assetConfig,
+		...opts.overrides?.assetConfig,
+	};
+
+	if (!opts.overrides) {
+		return { ...resolved, assetConfig };
+	}
+
+	return {
+		...resolved,
+		...opts.overrides,
+		// Keep the validated absolute directory and merge structured overrides
+		// rather than replacing the resolved defaults wholesale.
+		directory: resolved.directory,
+		routerConfig: {
+			...resolved.routerConfig,
+			...opts.overrides.routerConfig,
+		},
+		assetConfig,
+	};
 }
 
 /**
