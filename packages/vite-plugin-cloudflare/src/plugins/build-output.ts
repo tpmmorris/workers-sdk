@@ -4,6 +4,7 @@ import {
 	writeRootConfig,
 	writeWorkerConfig,
 } from "@cloudflare/build-output-utils";
+import { inheritAssetsBasePath } from "../asset-config";
 import { MAIN_ENTRY_NAME } from "../cloudflare-environment";
 import { createPlugin } from "../utils";
 import type { ModuleType } from "@cloudflare/config";
@@ -30,7 +31,10 @@ export const buildOutputPlugin = createPlugin("build-output", (ctx) => {
 					workerNewConfig,
 					"Expected a default worker export on assets-only resolved config"
 				);
-				await writeWorkerConfig(ctx.resolvedViteConfig.root, workerNewConfig);
+				await writeWorkerConfig(
+					ctx.resolvedViteConfig.root,
+					inheritAssetsBasePath(workerNewConfig, ctx.resolvedViteConfig)
+				);
 				await writeSettingsConfig();
 				return;
 			}
@@ -83,10 +87,14 @@ export const buildOutputPlugin = createPlugin("build-output", (ctx) => {
 				modules[fileName] = { type: detectModuleType(fileName) };
 			}
 
-			await writeWorkerConfig(ctx.resolvedViteConfig.root, workerNewConfig, {
-				mainModule: entryChunk.fileName,
-				modules,
-			});
+			await writeWorkerConfig(
+				ctx.resolvedViteConfig.root,
+				inheritAssetsBasePath(workerNewConfig, ctx.resolvedViteConfig),
+				{
+					mainModule: entryChunk.fileName,
+					modules,
+				}
+			);
 			await writeSettingsConfig();
 		},
 	};
