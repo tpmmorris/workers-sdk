@@ -76,6 +76,7 @@ export type PreviewAssetsOptions = {
 	assetConfig: {
 		html_handling?: string;
 		not_found_handling?: string;
+		base_path?: string;
 	};
 	run_worker_first?: string[] | boolean;
 	_headers?: string;
@@ -436,6 +437,7 @@ async function assemblePreviewDeploymentSettings(
 				html_handling: options.assetsOptions.assetConfig.html_handling,
 				not_found_handling:
 					options.assetsOptions.assetConfig.not_found_handling,
+				base_path: options.assetsOptions.assetConfig.base_path,
 				run_worker_first: options.assetsOptions.run_worker_first,
 			},
 		};
