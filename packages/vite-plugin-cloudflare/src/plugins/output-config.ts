@@ -2,6 +2,7 @@ import assert from "node:assert";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as vite from "vite";
+import { resolveAssetsBasePath } from "../asset-config";
 import { MAIN_ENTRY_NAME } from "../cloudflare-environment";
 import { assertIsNotPreview } from "../context";
 import { writeDeployConfig } from "../deploy-config";
@@ -96,12 +97,17 @@ export const outputConfigPlugin = createPlugin("output-config", (ctx) => {
 				// For assets only projects the `wrangler.json` file is emitted in the client output directory
 				if (ctx.resolvedPluginConfig.type === "assets-only") {
 					const inputAssetsOnlyConfig = ctx.resolvedPluginConfig.config;
+					const basePath = resolveAssetsBasePath(
+						inputAssetsOnlyConfig.assets?.base_path,
+						ctx.resolvedViteConfig
+					);
 
 					outputConfig = {
 						...inputAssetsOnlyConfig,
 						assets: {
 							...inputAssetsOnlyConfig.assets,
 							directory: ".",
+							base_path: basePath,
 						},
 					};
 				}
@@ -165,6 +171,10 @@ export function getOutputConfig({
 		resolvedViteConfig.root,
 		workerOutputDirectory
 	);
+	const basePath = resolveAssetsBasePath(
+		inputWorkerConfig.assets?.base_path,
+		resolvedViteConfig
+	);
 
 	return {
 		...inputWorkerConfig,
@@ -178,6 +188,7 @@ export function getOutputConfig({
 						workerOutputDirectory,
 						resolvedViteConfig
 					),
+					base_path: basePath,
 				}
 			: undefined,
 		d1_databases: inputWorkerConfig.d1_databases.map((database) => {

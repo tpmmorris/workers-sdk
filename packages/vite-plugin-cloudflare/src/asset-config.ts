@@ -1,4 +1,5 @@
 import * as path from "node:path";
+import { normalizeUriEncodedBasePath } from "@cloudflare/workers-shared/utils/base-path";
 import {
 	constructHeaders,
 	constructRedirects,
@@ -18,10 +19,15 @@ import type {
 	AssetsOnlyResolvedConfig,
 	WorkersResolvedConfig,
 } from "./plugin-config";
+import type { ParsedInputWorkerConfig } from "@cloudflare/config";
 import type { Logger } from "@cloudflare/workers-shared/utils/configuration/types";
 import type { AssetConfig } from "@cloudflare/workers-shared/utils/types";
 import type * as vite from "vite";
 import type { Unstable_Config } from "wrangler";
+
+interface ResolvedViteBase {
+	base: string;
+}
 
 /**
  * Returns true if the `changedFile` matches one of the _headers or _redirects files,
@@ -54,6 +60,10 @@ export function getAssetsConfig(
 		resolvedPluginConfig.type === "assets-only"
 			? resolvedPluginConfig.config.assets
 			: entryWorkerConfig?.assets;
+	const basePath = resolveAssetsBasePath(
+		assetsConfig?.base_path,
+		resolvedConfig
+	);
 
 	const compatibilityOptions =
 		resolvedPluginConfig.type === "assets-only"
@@ -73,6 +83,7 @@ export function getAssetsConfig(
 	const config = {
 		...compatibilityOptions,
 		...assetsConfig,
+		base_path: basePath,
 		has_static_routing:
 			resolvedPluginConfig.type === "workers" &&
 			resolvedPluginConfig.staticRouting
@@ -132,6 +143,50 @@ export function getAssetsConfig(
 		...config,
 		...(redirects ? { redirects } : {}),
 		...(headers ? { headers } : {}),
+	};
+}
+
+export function resolveAssetsBasePath(
+	basePath: string | undefined,
+	resolvedConfig: ResolvedViteBase
+): string | undefined {
+	if (basePath !== undefined) {
+		return basePath;
+	}
+
+	if (
+		!resolvedConfig.base.startsWith("/") ||
+		resolvedConfig.base.startsWith("//")
+	) {
+		return undefined;
+	}
+
+	const normalizedBasePath = normalizeUriEncodedBasePath(resolvedConfig.base);
+	return normalizedBasePath.valid
+		? normalizedBasePath.value
+		: resolvedConfig.base;
+}
+
+export function inheritAssetsBasePath(
+	config: ParsedInputWorkerConfig,
+	resolvedConfig: ResolvedViteBase
+): ParsedInputWorkerConfig {
+	if (config.assets === undefined) {
+		return config;
+	}
+	const basePath = resolveAssetsBasePath(
+		config.assets.basePath,
+		resolvedConfig
+	);
+	if (basePath === undefined || basePath === config.assets.basePath) {
+		return config;
+	}
+	return {
+		...config,
+		assets: {
+			...config.assets,
+			basePath,
+		},
 	};
 }
 

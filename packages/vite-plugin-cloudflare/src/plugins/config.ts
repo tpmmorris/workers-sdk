@@ -8,7 +8,11 @@ import {
 	writeWorkerConfig,
 } from "@cloudflare/build-output-utils";
 import { normalizePath } from "vite";
-import { hasAssetsConfigChanged } from "../asset-config";
+import {
+	hasAssetsConfigChanged,
+	inheritAssetsBasePath,
+	resolveAssetsBasePath,
+} from "../asset-config";
 import { createBuildApp, removeAssetsField } from "../build";
 import {
 	cloudflareBuiltInModules,
@@ -223,7 +227,13 @@ export const configPlugin = createPlugin("config", (ctx) => {
 							entryWorkerNewConfig,
 							`No config found for "${entryWorkerEnvironmentName}" environment`
 						);
-						await writeWorkerConfig(builder.config.root, entryWorkerNewConfig);
+						await writeWorkerConfig(
+							builder.config.root,
+							inheritAssetsBasePath(
+								entryWorkerNewConfig,
+								ctx.resolvedViteConfig
+							)
+						);
 					} else {
 						const entryWorkerConfig = ctx.getWorkerConfig(
 							entryWorkerEnvironmentName
@@ -231,6 +241,10 @@ export const configPlugin = createPlugin("config", (ctx) => {
 						assert(
 							entryWorkerConfig,
 							`No config found for "${entryWorkerEnvironmentName}" environment`
+						);
+						const basePath = resolveAssetsBasePath(
+							entryWorkerConfig.assets?.base_path,
+							ctx.resolvedViteConfig
 						);
 
 						const outputConfig: Unstable_RawConfig = {
@@ -240,6 +254,7 @@ export const configPlugin = createPlugin("config", (ctx) => {
 								...entryWorkerConfig.assets,
 								directory: ".",
 								binding: undefined,
+								base_path: basePath,
 							},
 						};
 
