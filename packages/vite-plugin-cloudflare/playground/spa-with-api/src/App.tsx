@@ -32,7 +32,8 @@ function App() {
 			<div className="card">
 				<button
 					onClick={() => {
-						void fetch("/api/")
+						// eslint-disable-next-line turbo/no-undeclared-env-vars -- Build-time replaced by Vite, not a process environment variable
+						void fetch(`${import.meta.env.BASE_URL}api/`)
 							.then((res) => res.json() as Promise<{ name: string }>)
 							.then((data) => setName(data.name));
 					}}

@@ -16,9 +16,10 @@ describe("getWorkerOutputConfig", () => {
 		return tempRoot;
 	}
 
-	function resolvedViteConfig(root: string): vite.ResolvedConfig {
+	function resolvedViteConfig(root: string, base = "/"): vite.ResolvedConfig {
 		return {
 			root,
+			base,
 			environments: {
 				client: {
 					build: { outDir: "dist/client" },
@@ -147,5 +148,72 @@ describe("getWorkerOutputConfig", () => {
 				migrations_pattern: undefined,
 			},
 		]);
+	});
+
+	test("inherits assets.base_path from the resolved Vite base", ({
+		expect,
+	}) => {
+		const root = createRoot();
+
+		const outputConfig = getOutputConfig({
+			inputWorkerConfig: workerConfig(root, {
+				assets: { directory: "public" },
+			}),
+			workerOutputDirectory: "dist/api_worker",
+			resolvedViteConfig: resolvedViteConfig(root, "/app/"),
+			entryFileName: "index.js",
+			includeAssets: true,
+		});
+
+		expect(outputConfig.assets?.base_path).toBe("/app/");
+	});
+
+	test("decodes the final resolved Vite base", ({ expect }) => {
+		const root = createRoot();
+
+		const outputConfig = getOutputConfig({
+			inputWorkerConfig: workerConfig(root, {
+				assets: { directory: "public" },
+			}),
+			workerOutputDirectory: "dist/api_worker",
+			resolvedViteConfig: resolvedViteConfig(root, "/caf%C3%A9/"),
+			entryFileName: "index.js",
+			includeAssets: true,
+		});
+
+		expect(outputConfig.assets?.base_path).toBe("/café/");
+	});
+
+	test("omits an absolute-URL Vite base", ({ expect }) => {
+		const root = createRoot();
+		const outputConfig = getOutputConfig({
+			inputWorkerConfig: workerConfig(root, {
+				assets: { directory: "public" },
+			}),
+			workerOutputDirectory: "dist/api_worker",
+			resolvedViteConfig: resolvedViteConfig(root, "https://example.com/app/"),
+			entryFileName: "index.js",
+			includeAssets: true,
+		});
+
+		expect(outputConfig.assets?.base_path).toBeUndefined();
+	});
+
+	test("prefers an explicit assets.base_path over the Vite base", ({
+		expect,
+	}) => {
+		const root = createRoot();
+
+		const outputConfig = getOutputConfig({
+			inputWorkerConfig: workerConfig(root, {
+				assets: { directory: "public", base_path: "/assets" },
+			}),
+			workerOutputDirectory: "dist/api_worker",
+			resolvedViteConfig: resolvedViteConfig(root, "/vite/"),
+			entryFileName: "index.js",
+			includeAssets: true,
+		});
+
+		expect(outputConfig.assets?.base_path).toBe("/assets");
 	});
 });

@@ -15,7 +15,7 @@ import type { Config } from "@cloudflare/workers-utils";
  */
 function makeConfig(
 	overrides: Partial<{
-		assets: { directory?: string; binding?: string };
+		assets: NonNullable<Config["assets"]>;
 		main: string;
 		configPath: string;
 	}> = {}
@@ -115,6 +115,66 @@ describe("getAssetsOptions", () => {
 			// No _redirects / _headers since the directory doesn't exist
 			expect(result?._redirects).toBeUndefined();
 			expect(result?._headers).toBeUndefined();
+		});
+
+		it("merges nested assetConfig overrides without losing resolved defaults", ({
+			expect,
+		}) => {
+			const result = getAssetsOptions({
+				args: { assets: undefined },
+				config: makeConfig({
+					assets: {
+						directory: "dist",
+						html_handling: "force-trailing-slash",
+						base_path: "/original",
+					},
+				}),
+				validateDirectoryExistence: false,
+				overrides: {
+					assetConfig: { base_path: "/subpath" },
+				},
+			});
+
+			expect(result?.assetConfig).toMatchObject({
+				html_handling: "force-trailing-slash",
+				base_path: "/subpath",
+			});
+		});
+
+		it("preserves a relative base_path override for the Asset Worker", ({
+			expect,
+		}) => {
+			const result = getAssetsOptions({
+				args: { assets: undefined },
+				config: makeConfig({
+					assets: {
+						directory: "dist",
+					},
+				}),
+				validateDirectoryExistence: false,
+				overrides: {
+					assetConfig: { base_path: "relative/path" },
+				},
+			});
+
+			expect(result?.assetConfig.base_path).toBe("relative/path");
+		});
+
+		it("preserves an invalid base_path override for Asset Worker validation", ({
+			expect,
+		}) => {
+			const result = getAssetsOptions({
+				args: { assets: undefined },
+				config: makeConfig({ assets: { directory: "dist" } }),
+				validateDirectoryExistence: false,
+				overrides: {
+					assetConfig: { base_path: "https://example.com/assets" },
+				},
+			});
+
+			expect(result?.assetConfig.base_path).toBe(
+				"https://example.com/assets"
+			);
 		});
 
 		it("still throws NonDirectoryAssetsDirError when the path points to a file", ({
