@@ -3,6 +3,7 @@
 	"private": true,
 	"type": "module",
 	"scripts": {
+		"build:base-path": "vite build -c ./vite.config.base-path.ts",
 		"build:client-bundled-dev": "vite build -c ./vite.config.client-bundled-dev.ts",
 		"build:custom-output-directories": "vite build -c ./vite.config.custom-output-directories.ts",
 		"build:default": "vite build",
@@ -11,6 +12,7 @@
 		"build:static-routing": "vite build -c ./vite.config.static-routing.ts",
 		"check:type": "tsc --build",
 		"dev": "vite dev",
+		"dev:base-path": "vite dev -c ./vite.config.base-path.ts",
 		"dev:client-bundled-dev": "vite dev -c ./vite.config.client-bundled-dev.ts",
 		"dev:https": "vite dev -c ./vite.config.https.ts",
 		"dev:run-worker-first": "vite dev -c ./vite.config.run-worker-first.ts",

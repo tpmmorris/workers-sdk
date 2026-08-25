@@ -18,6 +18,51 @@ function asArray(value: unknown): unknown[] {
 describe("unstable_getMiniflareWorkerOptions", () => {
 	runInTempDir();
 
+	it.for([
+		{
+			description: "a non-root value",
+			basePath: "/subpath",
+			expectedBasePath: "/subpath",
+		},
+		{ description: "the root value", basePath: "/", expectedBasePath: "/" },
+		{
+			description: "an omitted value",
+			basePath: undefined,
+			expectedBasePath: undefined,
+		},
+	])(
+		"preserves $description for assetConfig.base_path",
+		({ basePath, expectedBasePath }, { expect }) => {
+			writeWranglerConfig(
+				{
+					name: "test-worker",
+					main: "./index.js",
+					compatibility_date: "2024-10-04",
+				},
+				"./wrangler.json"
+			);
+
+			const { workerOptions } = unstable_getMiniflareWorkerOptions(
+				"./wrangler.json",
+				undefined,
+				{
+					overrides: {
+						assets: {
+							directory: "./dist",
+							assetConfig: {
+								html_handling: "auto-trailing-slash",
+								not_found_handling: "none",
+								base_path: basePath,
+							},
+						},
+					},
+				}
+			);
+
+			expect(workerOptions.assets?.assetConfig?.base_path).toBe(expectedBasePath);
+		}
+	);
+
 	describe("zone derivation (used for the outbound CF-Worker header)", () => {
 		it("derives the zone from a single `route` string", ({ expect }) => {
 			writeWranglerConfig(

@@ -7,9 +7,11 @@ interface Env {
 export default {
 	async fetch(request, env) {
 		const { pathname } = new URL(request.url);
+		// eslint-disable-next-line turbo/no-undeclared-env-vars -- Build-time replaced by Vite, not a process environment variable
+		const apiPath = `${import.meta.env.BASE_URL}api/`;
 
-		if (pathname.startsWith("/api/")) {
-			if (pathname === "/api/asset") {
+		if (pathname.startsWith(apiPath)) {
+			if (pathname === `${apiPath}asset`) {
 				const response = await env.ASSETS.fetch(
 					new URL(assetPath, request.url)
 				);
