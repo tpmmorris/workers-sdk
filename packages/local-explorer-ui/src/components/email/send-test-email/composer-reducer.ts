@@ -41,6 +41,9 @@ export type TestEmailComposerAction =
 			readGeneration: number;
 	  }
 	| { type: "removeAttachment"; index: number }
+	| { type: "selectRawFile"; file: File }
+	| { type: "rejectRawFiles"; error: string }
+	| { type: "removeRawFile" }
 	| {
 			type: "applyValidation";
 			attachmentsError: string | null;
@@ -65,6 +68,8 @@ export function createInitialComposerState(): TestEmailComposerState {
 		html: "",
 		pendingAttachmentReads: 0,
 		replyTo: "",
+		rawFile: null,
+		rawFileError: null,
 		sending: false,
 		subject: "",
 		text: "",
@@ -92,6 +97,8 @@ export function testEmailComposerReducer(
 				html: action.html,
 				pendingAttachmentReads: 0,
 				replyTo: action.replyTo,
+				rawFile: null,
+				rawFileError: null,
 				sending: state.sending,
 				subject: action.subject,
 				text: action.text,
@@ -159,6 +166,12 @@ export function testEmailComposerReducer(
 				),
 				attachmentsError: null,
 			};
+		case "selectRawFile":
+			return { ...state, rawFile: action.file, rawFileError: null };
+		case "rejectRawFiles":
+			return { ...state, rawFileError: action.error };
+		case "removeRawFile":
+			return { ...state, rawFile: null, rawFileError: null };
 		case "applyValidation":
 			return {
 				...state,

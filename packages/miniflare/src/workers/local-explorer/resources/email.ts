@@ -3,13 +3,18 @@ import { z } from "zod";
 import { EMAIL_STORE_SERVICE_NAME } from "../../../plugins/core/constants";
 import { CoreBindings, CorePaths } from "../../core";
 import { handleEmail } from "../../core/email";
-import { base64ToBytes, bytesToBase64 } from "../../email/capture";
+import {
+	base64ToBytes,
+	bytesToBase64,
+	readProductionLimitedEmailBody,
+} from "../../email/capture";
 import {
 	zEmailHandlerResult,
 	zEmailRoutingDetail,
 	zEmailRoutingItem,
 	zEmailSendingDetail,
 	zEmailSendingItem,
+	zEmailSendRequest,
 } from "../../email/contracts";
 import {
 	hasControlCharacters,
@@ -21,6 +26,7 @@ import {
 import {
 	extractAddressFromString,
 	messageIdToStorageId,
+	setMessageIdHeader,
 	synthesizeMessageId,
 } from "../../email/message-id";
 import { buildMimeMessage } from "../../email/mime";
@@ -29,9 +35,10 @@ import {
 	getPeerEntrypoint,
 	getPeerUrlsIfAggregating,
 } from "../aggregation";
-import { errorResponse, wrapResponse } from "../common";
+import { errorResponse, validationHook, wrapResponse } from "../common";
 import { zLocalExplorerListWorkersResponse } from "../generated/zod.gen";
 import type {
+	EmailCaptureOrigin,
 	EmailRoutingItem,
 	EmailSendingItem,
 	EmailSendRequest,
@@ -948,11 +955,12 @@ async function deliverTestEmail(
 		from: string;
 		to: string;
 		id: string;
-		mime: string;
+		mime: string | Uint8Array;
+		origin: EmailCaptureOrigin;
 		worker: string;
 	}
 ): Promise<Response | undefined> {
-	const { from, to, id, mime, worker } = email;
+	const { from, to, id, mime, origin, worker } = email;
 
 	const deliverUrl = new URL(CorePaths.EMAIL, "http://localhost");
 	deliverUrl.searchParams.set("from", from);
@@ -979,7 +987,8 @@ async function deliverTestEmail(
 		// Hono's `executionCtx` and workerd's `ExecutionContext` differ only by
 		// the `@cloudflare/workers-types` version in scope; `handleEmail` uses
 		// only `waitUntil`, which both provide.
-		c.executionCtx as unknown as ExecutionContext
+		c.executionCtx as unknown as ExecutionContext,
+		origin
 	);
 }
 
@@ -987,6 +996,38 @@ async function deliverTestEmail(
  * Sends a test email to trigger the worker's email() handler.
  */
 export async function sendTestEmail(
+	c: AppContext,
+	worker?: string
+): Promise<Response> {
+	const contentType = c.req
+		.header("Content-Type")
+		?.split(";", 1)[0]
+		?.trim()
+		.toLowerCase();
+	if (contentType === "application/json") {
+		let value: unknown;
+		try {
+			value = await c.req.json();
+		} catch {
+			throw new Error("Malformed JSON in request body");
+		}
+		const parsed = await zEmailSendRequest.safeParseAsync(value);
+		if (!parsed.success) {
+			return validationHook(parsed, c);
+		}
+		return sendStructuredTestEmail(c, parsed.data, worker);
+	}
+	if (contentType === "message/rfc822") {
+		return sendRawTestEmail(c, worker);
+	}
+	return errorResponse(
+		415,
+		10000,
+		"Content-Type must be application/json or message/rfc822."
+	);
+}
+
+async function sendStructuredTestEmail(
 	c: AppContext,
 	body: EmailSendRequest,
 	worker?: string
@@ -1023,11 +1064,7 @@ export async function sendTestEmail(
 				return response;
 			}
 		}
-		return errorResponse(
-			400,
-			EMAIL_ERROR_SEND_FAILED,
-			`Worker '${worker}' is not available in this dev session.`
-		);
+		return workerUnavailableResponse(worker);
 	}
 
 	const from = extractAddressFromString(body.from);
@@ -1042,14 +1079,165 @@ export async function sendTestEmail(
 	const messageId = synthesizeMessageId(from);
 	const id = messageIdToStorageId(messageId);
 	const mime = buildMimeMessage(body, messageId);
+	return deliverPreparedTestEmail(c, {
+		from,
+		to,
+		id,
+		mime,
+		origin: "composer",
+		worker,
+		messageId,
+	});
+}
 
-	const response = await deliverTestEmail(c, { from, to, id, mime, worker });
-	if (response === undefined) {
+async function sendRawTestEmail(
+	c: AppContext,
+	worker?: string
+): Promise<Response> {
+	if (worker === undefined) {
+		return errorResponse(400, 10000, "A target worker is required.");
+	}
+
+	const contentLength = c.req.header("Content-Length");
+
+	// Determine ownership before reading the request stream so a peer-owned
+	// upload can be forwarded without materialising it in this instance.
+	if (!isLocalWorker(c, worker)) {
+		const ownerLookup = await findWorkerOwner(
+			c,
+			await getPeerUrlsIfAggregating(c),
+			worker
+		);
+		const owner = ownerLookup.owner;
+		if (owner) {
+			const response = await fetchFromPeer(
+				owner,
+				`/local/email/routing/send?worker=${encodeURIComponent(worker)}`,
+				{
+					method: "POST",
+					headers: {
+						"Content-Type": c.req.header("Content-Type") ?? "message/rfc822",
+						...(contentLength === undefined
+							? {}
+							: { "Content-Length": contentLength }),
+					},
+					body: c.req.raw.body,
+				}
+			);
+			if (response) {
+				return response;
+			}
+			return peerUnavailableResponse(worker);
+		}
+		if (ownerLookup.unavailable) {
+			return peerUnavailableResponse(worker);
+		}
+		return workerUnavailableResponse(worker);
+	}
+
+	const limitedBody = await readProductionLimitedEmailBody(
+		() => c.req.arrayBuffer(),
+		contentLength
+	);
+	if (limitedBody.tooLarge) {
+		return emailTooLargeResponse();
+	}
+	const raw = limitedBody.raw;
+
+	let parsedEmail: Awaited<ReturnType<typeof PostalMime.parse>>;
+	try {
+		parsedEmail = await PostalMime.parse(raw);
+	} catch (error) {
+		return mimeParseErrorResponse(error);
+	}
+	const from = parsedEmail.from?.address?.trim();
+	if (!from) {
 		return errorResponse(
 			400,
 			EMAIL_ERROR_SEND_FAILED,
-			`Worker '${worker}' is not available in this dev session.`
+			"Uploaded email must include a parseable From header."
 		);
+	}
+	const to = parsedEmail.to
+		?.map(({ address }) => address?.trim())
+		.find((address): address is string => Boolean(address));
+	if (!to) {
+		return errorResponse(
+			400,
+			EMAIL_ERROR_SEND_FAILED,
+			"Uploaded email must include at least one parseable To address."
+		);
+	}
+
+	const messageId = synthesizeMessageId(from);
+	let mime: Uint8Array;
+	try {
+		mime = setMessageIdHeader(raw, messageId);
+	} catch (error) {
+		return mimeParseErrorResponse(error);
+	}
+	const id = messageIdToStorageId(messageId);
+	return deliverPreparedTestEmail(c, {
+		from,
+		to,
+		id,
+		mime,
+		origin: "eml",
+		worker,
+		messageId,
+	});
+}
+
+function emailTooLargeResponse(): Response {
+	return errorResponse(
+		400,
+		EMAIL_ERROR_SEND_FAILED,
+		"Email message size is bigger than the production size limit of 25 MiB."
+	);
+}
+
+function mimeParseErrorResponse(error: unknown): Response {
+	const detail =
+		error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+	return errorResponse(
+		400,
+		EMAIL_ERROR_SEND_FAILED,
+		`Email could not be parsed: ${detail}`
+	);
+}
+
+function workerUnavailableResponse(worker: string): Response {
+	return errorResponse(
+		400,
+		EMAIL_ERROR_SEND_FAILED,
+		`Worker '${worker}' is not available in this dev session.`
+	);
+}
+
+async function deliverPreparedTestEmail(
+	c: AppContext,
+	email: {
+		from: string;
+		to: string;
+		id: string;
+		mime: string | Uint8Array;
+		origin: EmailCaptureOrigin;
+		worker: string;
+		messageId: string;
+	}
+): Promise<Response> {
+	const { from, to, id, mime, origin, worker, messageId } = email;
+
+	const response = await deliverTestEmail(c, {
+		from,
+		to,
+		id,
+		mime,
+		origin,
+		worker,
+	});
+	if (response === undefined) {
+		return workerUnavailableResponse(worker);
 	}
 
 	// A 4xx means the message itself was invalid (bad envelope, unparseable, or

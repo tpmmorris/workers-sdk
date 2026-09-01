@@ -9,10 +9,13 @@ import {
 	testEmailComposerReducer,
 } from "./composer-reducer";
 import {
+	getEmailSendErrorMessage,
 	isMissingEmailHandlerError,
 	normalizeTestEmailDraft,
 	validateTestEmailComposer,
 } from "./composer-utils";
+import { getRawEmailSelectionError } from "./raw-email-validation";
+import { sendRawTestEmail } from "./send-raw-test-email";
 import type {
 	TestEmailComposerField,
 	TestEmailComposerState,
@@ -23,7 +26,8 @@ interface UseSendTestEmailComposerOptions {
 	initialDraft?: TestEmailDraft;
 	onError: (message: string) => void;
 	onOpenChange: (open: boolean) => void;
-	onSent: (draft: TestEmailDraft) => void;
+	onSendSuccess: () => void;
+	onStructuredSent: (draft: TestEmailDraft) => void;
 	open: boolean;
 	worker?: string;
 }
@@ -44,10 +48,29 @@ export interface SendTestEmailComposerController {
 	openState: {
 		change: (open: boolean) => void;
 	};
+	rawFile: {
+		remove: () => void;
+		select: (files: File[]) => void;
+	};
 	state: TestEmailComposerState;
 	submission: {
 		submit: () => Promise<void>;
 	};
+}
+
+function getRawHandlerError(result: {
+	outcome?: "ok" | "exception";
+	rejectReason?: string;
+}): string | null {
+	if (result.rejectReason !== undefined) {
+		return result.rejectReason
+			? `The Worker's email() handler rejected the message: ${result.rejectReason}`
+			: "The Worker's email() handler rejected the message.";
+	}
+	if (result.outcome === "exception") {
+		return "The Worker's email() handler threw an exception.";
+	}
+	return null;
 }
 
 /** Coordinates test-email state, attachment reads, and API submission. */
@@ -55,7 +78,8 @@ export function useSendTestEmailComposer({
 	initialDraft,
 	onError,
 	onOpenChange,
-	onSent,
+	onSendSuccess,
+	onStructuredSent,
 	open,
 	worker,
 }: UseSendTestEmailComposerOptions): SendTestEmailComposerController {
@@ -66,6 +90,7 @@ export function useSendTestEmailComposer({
 	);
 	const attachmentReadGenerationRef = useRef<number>(0);
 	const nextHeaderIdRef = useRef<number>(0);
+	const sendingRef = useRef<boolean>(false);
 
 	const loadDraft = useCallback((draft?: TestEmailDraft) => {
 		const normalizedDraft = normalizeTestEmailDraft(draft);
@@ -158,7 +183,72 @@ export function useSendTestEmailComposer({
 		onOpenChange(newOpen);
 	}
 
+	function selectRawFiles(files: File[]): void {
+		if (files.length === 0) {
+			return;
+		}
+		const error = getRawEmailSelectionError(files);
+		if (error) {
+			dispatch({ type: "rejectRawFiles", error });
+			return;
+		}
+		const file = files[0];
+		if (file) {
+			dispatch({ type: "selectRawFile", file });
+		}
+	}
+
+	async function submitRawFile(
+		file: File,
+		selectedWorker: string
+	): Promise<void> {
+		const selectionError = getRawEmailSelectionError([file]);
+		if (selectionError) {
+			dispatch({ type: "rejectRawFiles", error: selectionError });
+			return;
+		}
+
+		sendingRef.current = true;
+		dispatch({ type: "startSending" });
+		try {
+			const { data, error, response } = await sendRawTestEmail(
+				file,
+				selectedWorker
+			);
+			if (error || !response?.ok) {
+				onError(getEmailSendErrorMessage(error));
+				if (!isMissingEmailHandlerError(error, selectedWorker)) {
+					return;
+				}
+			}
+			const handlerError = getRawHandlerError(data?.result ?? {});
+			if (handlerError) {
+				onError(handlerError);
+			}
+			loadDraft();
+			onSendSuccess();
+			onOpenChange(false);
+		} catch (error) {
+			onError(getEmailSendErrorMessage(error));
+		} finally {
+			sendingRef.current = false;
+			dispatch({ type: "finishSending" });
+		}
+	}
+
 	async function submit(): Promise<void> {
+		if (sendingRef.current) {
+			return;
+		}
+		if (state.rawFile) {
+			if (!worker) {
+				onError("Select a worker before sending a test email.");
+				return;
+			}
+			await submitRawFile(state.rawFile, worker);
+			return;
+		}
+
 		const validation = validateTestEmailComposer(state);
 		dispatch({
 			type: "applyValidation",
@@ -175,6 +265,7 @@ export function useSendTestEmailComposer({
 			return;
 		}
 
+		sendingRef.current = true;
 		dispatch({ type: "startSending" });
 		try {
 			const { error: sendError, response } = await emailSendRouting({
@@ -183,21 +274,19 @@ export function useSendTestEmailComposer({
 				throwOnError: false,
 			});
 			if (sendError || !response.ok) {
-				onError(
-					sendError?.errors?.[0]?.message ?? "Failed to send test email."
-				);
+				onError(getEmailSendErrorMessage(sendError));
 				if (!isMissingEmailHandlerError(sendError, worker)) {
 					return;
 				}
 			}
 			loadDraft();
-			onSent(validation.sentDraft);
+			onStructuredSent(validation.sentDraft);
+			onSendSuccess();
 			onOpenChange(false);
 		} catch (error) {
-			onError(
-				error instanceof Error ? error.message : "Failed to send test email."
-			);
+			onError(getEmailSendErrorMessage(error));
 		} finally {
+			sendingRef.current = false;
 			dispatch({ type: "finishSending" });
 		}
 	}
@@ -214,6 +303,10 @@ export function useSendTestEmailComposer({
 			remove: (id) => dispatch({ type: "removeHeader", id }),
 		},
 		openState: { change: handleOpenChange },
+		rawFile: {
+			remove: () => dispatch({ type: "removeRawFile" }),
+			select: selectRawFiles,
+		},
 		state,
 		submission: { submit },
 	};

@@ -728,7 +728,7 @@ const config = {
 			"/local/email/routing/send": {
 				post: {
 					description:
-						"Sends a test email to trigger the worker's email() handler. Only the first `to` address is used as the envelope recipient; any additional to and cc addresses appear only in the composed MIME headers. bcc addresses are accepted but, by convention, are not written into the composed message.",
+						"Sends a test email to trigger the worker's email() handler. Structured JSON composes a new message. message/rfc822 replays uploaded MIME bytes after replacing Message-ID and removing Bcc. Only the first `to` address is used as the envelope recipient; any additional to and cc addresses appear only in the composed MIME headers. bcc addresses are accepted but, by convention, are not written into the composed message.",
 					operationId: "email-send-routing",
 					parameters: [
 						{
@@ -746,6 +746,12 @@ const config = {
 							"application/json": {
 								schema: {
 									$ref: "#/components/schemas/email_send-request",
+								},
+							},
+							"message/rfc822": {
+								schema: {
+									type: "string",
+									format: "binary",
 								},
 							},
 						},
@@ -800,6 +806,17 @@ const config = {
 								},
 							},
 							description: "Send test email failure.",
+						},
+						"415": {
+							content: {
+								"application/json": {
+									schema: {
+										$ref: "#/components/schemas/workers_api-response-common-failure",
+									},
+								},
+							},
+							description:
+								"The request Content-Type is missing or unsupported.",
 						},
 					},
 					summary: "Send Test Email",

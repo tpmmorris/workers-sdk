@@ -35,6 +35,28 @@ export function isMissingEmailHandlerError(
 	);
 }
 
+/** Extracts a user-facing message from generated-client or network errors. */
+export function getEmailSendErrorMessage(error: unknown): string {
+	if (error instanceof Error) {
+		return error.message;
+	}
+	if (typeof error === "object" && error !== null && "errors" in error) {
+		const errors = (error as { errors?: unknown }).errors;
+		if (Array.isArray(errors)) {
+			const first = errors[0];
+			if (
+				typeof first === "object" &&
+				first !== null &&
+				"message" in first &&
+				typeof first.message === "string"
+			) {
+				return first.message;
+			}
+		}
+	}
+	return "Failed to send test email.";
+}
+
 /** Splits comma/newline-separated mailboxes without splitting quoted names. */
 export function parseAddressList(value: string): string[] {
 	const addresses: string[] = [];

@@ -29,60 +29,136 @@ export function setMessageIdHeader(
 	rawEmail: Uint8Array,
 	messageId: string
 ): Uint8Array {
-	const crlfSeparator = new Uint8Array([13, 10, 13, 10]);
-	const lfSeparator = new Uint8Array([10, 10]);
-	const crlfHeaderEnd = findSequence(rawEmail, crlfSeparator);
-	const lfHeaderEnd = findSequence(rawEmail, lfSeparator);
-	const usesCrlf =
-		crlfHeaderEnd !== -1 &&
-		(lfHeaderEnd === -1 || crlfHeaderEnd <= lfHeaderEnd);
-	const headerEnd = usesCrlf ? crlfHeaderEnd : lfHeaderEnd;
-	if (headerEnd === -1) {
+	const header = findHeaderLayout(rawEmail);
+	if (header === undefined) {
 		throw new Error("could not find end of email headers");
 	}
 
-	const lineEnding = usesCrlf ? "\r\n" : "\n";
-	const header = new TextDecoder().decode(rawEmail.subarray(0, headerEnd));
-	const lines = header.split(/\r?\n/u);
-	const normalizedLines: string[] = [];
-	let foundMessageId = false;
-	let skippingContinuation = false;
-
-	for (const line of lines) {
-		if (/^[ \t]/u.test(line)) {
-			if (!skippingContinuation) {
-				normalizedLines.push(line);
-			}
-			continue;
-		}
-
-		skippingContinuation = /^message-id\s*:/iu.test(line);
-		if (skippingContinuation) {
-			if (!foundMessageId) {
-				normalizedLines.push(`Message-ID: ${messageId}`);
-				foundMessageId = true;
-			}
-			continue;
-		}
-		normalizedLines.push(line);
-	}
-
-	if (!foundMessageId) {
-		normalizedLines.unshift(`Message-ID: ${messageId}`);
-	}
-
-	const encodedHeaders = new TextEncoder().encode(
-		normalizedLines.join(lineEnding)
+	const messageIdHeader = new TextEncoder().encode(
+		`Message-ID: ${messageId}${header.lineEnding}`
 	);
-	const separator = usesCrlf ? crlfSeparator : lfSeparator;
-	const body = rawEmail.subarray(headerEnd + separator.byteLength);
+	const removals = findMessageIdHeaders(rawEmail, header.linesEnd);
+	if (removals.length === 0) {
+		const normalizedEmail = new Uint8Array(
+			messageIdHeader.byteLength + rawEmail.byteLength
+		);
+		normalizedEmail.set(messageIdHeader);
+		normalizedEmail.set(rawEmail, messageIdHeader.byteLength);
+		return normalizedEmail;
+	}
+
+	const removedBytes = removals.reduce(
+		(total, removal) => total + removal.end - removal.start,
+		0
+	);
 	const normalizedEmail = new Uint8Array(
-		encodedHeaders.byteLength + separator.byteLength + body.byteLength
+		rawEmail.byteLength - removedBytes + messageIdHeader.byteLength
 	);
-	normalizedEmail.set(encodedHeaders);
-	normalizedEmail.set(separator, encodedHeaders.byteLength);
-	normalizedEmail.set(body, encodedHeaders.byteLength + separator.byteLength);
+	let sourceOffset = 0;
+	let targetOffset = 0;
+	for (const [index, removal] of removals.entries()) {
+		const retained = rawEmail.subarray(sourceOffset, removal.start);
+		normalizedEmail.set(retained, targetOffset);
+		targetOffset += retained.byteLength;
+		if (index === 0) {
+			normalizedEmail.set(messageIdHeader, targetOffset);
+			targetOffset += messageIdHeader.byteLength;
+		}
+		sourceOffset = removal.end;
+	}
+	normalizedEmail.set(rawEmail.subarray(sourceOffset), targetOffset);
 	return normalizedEmail;
+}
+
+function findHeaderLayout(
+	rawEmail: Uint8Array
+): { lineEnding: "\r\n" | "\n"; linesEnd: number } | undefined {
+	const crlfHeaderEnd = findSequence(
+		rawEmail,
+		new Uint8Array([13, 10, 13, 10])
+	);
+	const lfHeaderEnd = findSequence(rawEmail, new Uint8Array([10, 10]));
+	if (crlfHeaderEnd === -1 && lfHeaderEnd === -1) {
+		return;
+	}
+	const usesCrlf =
+		crlfHeaderEnd !== -1 &&
+		(lfHeaderEnd === -1 || crlfHeaderEnd <= lfHeaderEnd);
+	return usesCrlf
+		? { lineEnding: "\r\n", linesEnd: crlfHeaderEnd + 2 }
+		: { lineEnding: "\n", linesEnd: lfHeaderEnd + 1 };
+}
+
+function findMessageIdHeaders(
+	rawEmail: Uint8Array,
+	headerEnd: number
+): Array<{ start: number; end: number }> {
+	const removals: Array<{ start: number; end: number }> = [];
+	let offset = 0;
+	let headerStart = 0;
+	let removeHeader = false;
+	while (offset < headerEnd) {
+		const lineEnd = findLineEnd(rawEmail, offset, headerEnd);
+		const continuation = rawEmail[offset] === 0x20 || rawEmail[offset] === 0x09;
+		if (!continuation) {
+			if (removeHeader) {
+				removals.push({ start: headerStart, end: offset });
+			}
+			headerStart = offset;
+			removeHeader = headerNameMatches(
+				rawEmail,
+				offset,
+				lineEnd.contentEnd,
+				"message-id"
+			);
+		}
+		offset = lineEnd.end;
+	}
+	if (removeHeader) {
+		removals.push({ start: headerStart, end: offset });
+	}
+	return removals;
+}
+
+function findLineEnd(
+	rawEmail: Uint8Array,
+	start: number,
+	limit: number
+): { contentEnd: number; end: number } {
+	for (let index = start; index < limit; index++) {
+		if (rawEmail[index] !== 0x0a) {
+			continue;
+		}
+		return {
+			contentEnd:
+				index > start && rawEmail[index - 1] === 0x0d ? index - 1 : index,
+			end: index + 1,
+		};
+	}
+	return { contentEnd: limit, end: limit };
+}
+
+function headerNameMatches(
+	rawEmail: Uint8Array,
+	start: number,
+	end: number,
+	headerName: string
+): boolean {
+	let colon = start;
+	while (colon < end && rawEmail[colon] !== 0x3a) {
+		colon++;
+	}
+	if (colon === end || colon - start !== headerName.length) {
+		return false;
+	}
+	for (let index = 0; index < headerName.length; index++) {
+		const byte = rawEmail[start + index];
+		const lowerByte = byte >= 0x41 && byte <= 0x5a ? byte + 0x20 : byte;
+		if (lowerByte !== headerName.charCodeAt(index)) {
+			return false;
+		}
+	}
+	return true;
 }
 
 function findSequence(bytes: Uint8Array, sequence: Uint8Array): number {

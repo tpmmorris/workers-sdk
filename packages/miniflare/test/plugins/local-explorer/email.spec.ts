@@ -36,6 +36,7 @@ import {
 	waitForWorkersInRegistry,
 } from "../../test-shared";
 import { expectValidResponse } from "./helpers";
+import type { EmailCaptureOrigin } from "../../../src/workers/email/contracts";
 import type { EmailStoreService } from "../../../src/workers/email/storage";
 import type { MiniflareOptions } from "miniflare";
 
@@ -89,6 +90,21 @@ async function clearEmailStore(instance: Miniflare): Promise<void> {
 		CoreBindings.SERVICE_EMAIL_STORE
 	] as unknown as EmailStoreService;
 	await store.clear();
+}
+
+async function getReceivedOrigin(
+	instance: Miniflare,
+	messageId: string,
+	worker: string
+): Promise<EmailCaptureOrigin | undefined> {
+	const store = (await instance._getProxyClient()).env[
+		CoreBindings.SERVICE_EMAIL_STORE
+	] as unknown as EmailStoreService;
+	const email = await store.findReceived(
+		messageId.replace(/^<|>$/gu, ""),
+		worker
+	);
+	return email?.origin;
 }
 
 async function storeSentEmail(
@@ -1106,6 +1122,287 @@ describe("Local Explorer email API", () => {
 		]);
 	});
 
+	test("replays raw MIME with a new Message-ID and no Bcc", async ({
+		expect,
+	}) => {
+		const header = [
+			'From: "Sender" <sender@example.com>',
+			"To: first@example.com, second@example.com",
+			"Message-ID: <original-one@example.com>",
+			"\tfolded-original-value",
+			"message-id: <original-two@example.com>",
+			"Bcc: hidden@example.com",
+			"\tsecond-hidden@example.com",
+			"Subject: Raw replay",
+			"X-Test-Mode: assert-no-bcc",
+			"Content-Type: application/octet-stream",
+			"",
+			"",
+		].join("\r\n");
+		const headerBytes = new TextEncoder().encode(header);
+		const bodyBytes = new Uint8Array([0x00, 0x80, 0xff, 0x0d, 0x0a]);
+		const raw = new Uint8Array(headerBytes.byteLength + bodyBytes.byteLength);
+		raw.set(headerBytes);
+		raw.set(bodyBytes, headerBytes.byteLength);
+
+		const response = await mf.dispatchFetch(
+			`${BASE_URL}/local/email/routing/send?worker=${WORKER_NAME}`,
+			{
+				method: "POST",
+				headers: { "Content-Type": "message/rfc822" },
+				body: raw,
+			}
+		);
+		const responseBody = await response.text();
+		expect(response.status, responseBody).toBe(200);
+		const result = JSON.parse(responseBody) as {
+			result: { messageId: string; outcome: string; rejectReason?: string };
+		};
+		expect(result.result).toMatchObject({ outcome: "ok" });
+		expect(result.result).not.toHaveProperty("rejectReason");
+		expect(result.result.messageId).toMatch(/^<[A-Za-z0-9]{36}@example\.com>$/);
+
+		const detail = await expectValidResponse(
+			await mf.dispatchFetch(
+				`${BASE_URL}/local/email/routing?email_id=${encodeURIComponent(result.result.messageId)}&worker=${WORKER_NAME}`
+			),
+			zEmailRoutingDetailResponse,
+			expect
+		);
+		expect(detail.result).toMatchObject({
+			from: "sender@example.com",
+			to: "first@example.com",
+			messageId: result.result.messageId,
+		});
+		const deliveredHeader = [
+			'From: "Sender" <sender@example.com>',
+			"To: first@example.com, second@example.com",
+			`Message-ID: ${result.result.messageId}`,
+			"Subject: Raw replay",
+			"X-Test-Mode: assert-no-bcc",
+			"Content-Type: application/octet-stream",
+			"",
+			"",
+		].join("\r\n");
+		const deliveredHeaderBytes = new TextEncoder().encode(deliveredHeader);
+		const expectedRaw = Buffer.concat([
+			Buffer.from(deliveredHeaderBytes),
+			Buffer.from(bodyBytes),
+		]);
+		expect(Buffer.from(String(detail.result?.rawBase64), "base64")).toEqual(
+			expectedRaw
+		);
+		expect(
+			await getReceivedOrigin(mf, result.result.messageId, WORKER_NAME)
+		).toBe("eml");
+	});
+
+	test("preserves structured JSON media handling and records composer origin", async ({
+		expect,
+	}) => {
+		const response = await mf.dispatchFetch(
+			`${BASE_URL}/local/email/routing/send?worker=${WORKER_NAME}`,
+			{
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json; charset=utf-8",
+				},
+				body: JSON.stringify({
+					from: "sender@example.com",
+					to: ["recipient@example.com"],
+					bcc: ["hidden@example.com"],
+					subject: "Structured compatibility",
+					text: "Body",
+				}),
+			}
+		);
+		const responseBody = await response.text();
+		expect(response.status, responseBody).toBe(200);
+		const result = JSON.parse(responseBody) as {
+			result: { messageId: string; outcome: string };
+		};
+		expect(result.result).toMatchObject({ outcome: "ok" });
+		expect(
+			await getReceivedOrigin(mf, result.result.messageId, WORKER_NAME)
+		).toBe("composer");
+	});
+
+	test("preserves the malformed structured JSON error envelope", async ({
+		expect,
+	}) => {
+		const response = await mf.dispatchFetch(
+			`${BASE_URL}/local/email/routing/send?worker=${WORKER_NAME}`,
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: "{",
+			}
+		);
+		expect(response.status).toBe(500);
+		expect(await response.json()).toEqual({
+			success: false,
+			errors: [{ code: 10000, message: "Malformed JSON in request body" }],
+			messages: [],
+			result: null,
+		});
+	});
+
+	for (const [mode, expected] of [
+		["reject", { outcome: "ok", rejectReason: "Rejected by test worker" }],
+		["exception", { outcome: "exception" }],
+	] as const) {
+		test(`returns the ${mode} handler outcome for a raw replay`, async ({
+			expect,
+		}) => {
+			const raw = [
+				"From: sender@example.com",
+				"To: recipient@example.com",
+				`Subject: Raw ${mode}`,
+				`X-Test-Mode: ${mode}`,
+				"Content-Type: text/plain",
+				"",
+				"Body",
+			].join("\r\n");
+			const response = await mf.dispatchFetch(
+				`${BASE_URL}/local/email/routing/send?worker=${WORKER_NAME}`,
+				{
+					method: "POST",
+					headers: { "Content-Type": "message/rfc822" },
+					body: raw,
+				}
+			);
+			const responseBody = await response.text();
+			expect(response.status, responseBody).toBe(200);
+			expect(JSON.parse(responseBody)).toMatchObject({ result: expected });
+		});
+	}
+
+	test("reports a missing email handler for a raw replay", async ({
+		expect,
+	}) => {
+		const raw = [
+			"From: sender@example.com",
+			"To: recipient@example.com",
+			"Subject: Raw missing handler",
+			"Content-Type: text/plain",
+			"",
+			"Body",
+		].join("\r\n");
+		const response = await mf.dispatchFetch(
+			`${BASE_URL}/local/email/routing/send?worker=${NO_EMAIL_HANDLER_WORKER_NAME}`,
+			{
+				method: "POST",
+				headers: { "Content-Type": "message/rfc822" },
+				body: raw,
+			}
+		);
+		expect(response.status).toBe(400);
+		expect(await response.json()).toMatchObject({
+			errors: [
+				{
+					message: `Worker '${NO_EMAIL_HANDLER_WORKER_NAME}' does not export an email() handler.`,
+				},
+			],
+		});
+	});
+
+	for (const [contentType, description] of [
+		[undefined, "missing"],
+		["text/plain", "unsupported"],
+		["not a media type", "malformed"],
+	] as const) {
+		test(`rejects ${description} Content-Type for test email sending`, async ({
+			expect,
+		}) => {
+			const headers =
+				contentType === undefined ? undefined : { "Content-Type": contentType };
+			const response = await mf.dispatchFetch(
+				`${BASE_URL}/local/email/routing/send?worker=${WORKER_NAME}`,
+				{
+					method: "POST",
+					headers,
+					body: new Uint8Array(),
+				}
+			);
+			expect(response.status).toBe(415);
+			expect(await response.json()).toMatchObject({
+				errors: [
+					{
+						message: "Content-Type must be application/json or message/rfc822.",
+					},
+				],
+			});
+		});
+	}
+
+	for (const [header, raw, errorMessage] of [
+		[
+			"From",
+			["To: recipient@example.com", "Subject: Missing From", "", "Body"].join(
+				"\r\n"
+			),
+			"Uploaded email must include a parseable From header.",
+		],
+		[
+			"To",
+			["From: sender@example.com", "Subject: Missing To", "", "Body"].join(
+				"\r\n"
+			),
+			"Uploaded email must include at least one parseable To address.",
+		],
+	] as const) {
+		test(`rejects raw MIME without a parseable ${header} header`, async ({
+			expect,
+		}) => {
+			const response = await mf.dispatchFetch(
+				`${BASE_URL}/local/email/routing/send?worker=${WORKER_NAME}`,
+				{
+					method: "POST",
+					headers: { "Content-Type": "message/rfc822" },
+					body: raw,
+				}
+			);
+			expect(response.status).toBe(400);
+			expect(await response.json()).toMatchObject({
+				errors: [{ message: errorMessage }],
+			});
+		});
+	}
+
+	test("rejects an actual raw upload over the production limit", async ({
+		expect,
+	}) => {
+		const headers = new TextEncoder().encode(
+			"From: sender@example.com\r\nTo: recipient@example.com\r\n\r\n"
+		);
+		const raw = new Uint8Array(MAX_PRODUCTION_EMAIL_BYTES + 1);
+		raw.set(headers);
+		const body = new ReadableStream<Uint8Array>({
+			start(controller) {
+				controller.enqueue(raw);
+				controller.close();
+			},
+		});
+		const response = await mf.dispatchFetch(
+			`${BASE_URL}/local/email/routing/send?worker=${WORKER_NAME}`,
+			{
+				method: "POST",
+				headers: { "Content-Type": "message/rfc822" },
+				body,
+				duplex: "half",
+			} as RequestInit & { duplex: "half" }
+		);
+		expect(response.status).toBe(400);
+		expect(await response.json()).toMatchObject({
+			errors: [
+				{
+					message:
+						"Email message size is bigger than the production size limit of 25 MiB.",
+				},
+			],
+		});
+	});
+
 	test("rejects a received email larger than the production limit", async ({
 		expect,
 	}) => {
@@ -1209,6 +1506,9 @@ describe("Local Explorer email API", () => {
 			raw,
 			rawBase64: Buffer.from(raw).toString("base64"),
 		});
+		expect(
+			await getReceivedOrigin(mf, "<received-forward@example.com>", WORKER_NAME)
+		).toBeUndefined();
 	});
 
 	test("parses multipart received bodies from their lossless MIME bytes", async ({
@@ -2187,6 +2487,70 @@ describe("Local Explorer email aggregation", () => {
 		});
 	});
 
+	test("forwards raw MIME unchanged to the worker-owning peer", async ({
+		expect,
+	}) => {
+		const header = [
+			"From: peer-sender@example.com",
+			"To: peer-first@example.com, peer-second@example.com",
+			"Message-ID: <peer-original@example.com>",
+			"Subject: Peer raw replay",
+			"Content-Type: application/octet-stream",
+			"",
+			"",
+		].join("\n");
+		const rawBody = new Uint8Array([0x50, 0x65, 0x65, 0x72, 0x00, 0x80, 0xff]);
+		const raw = new Uint8Array(
+			new TextEncoder().encode(header).byteLength + rawBody.byteLength
+		);
+		raw.set(new TextEncoder().encode(header));
+		raw.set(rawBody, new TextEncoder().encode(header).byteLength);
+		const response = await dispatchExplorerApi(
+			instanceA,
+			"/local/email/routing/send?worker=email-b",
+			{
+				method: "POST",
+				headers: { "Content-Type": "message/rfc822" },
+				body: raw,
+			}
+		);
+		const responseBody = await response.text();
+		expect(response.status, responseBody).toBe(200);
+		const result = JSON.parse(responseBody) as {
+			result: { messageId: string; outcome: string };
+		};
+		expect(result.result).toMatchObject({ outcome: "ok" });
+		expect(result.result.messageId).not.toBe("<peer-original@example.com>");
+
+		const detail = await expectExplorerApiResponse(
+			instanceA,
+			`/local/email/routing?email_id=${encodeURIComponent(result.result.messageId)}&worker=email-b`,
+			zEmailRoutingDetailResponse,
+			expect
+		);
+		expect(detail.result).toMatchObject({
+			worker: "email-b",
+			from: "peer-sender@example.com",
+			to: "peer-first@example.com",
+			messageId: result.result.messageId,
+		});
+		const deliveredHeader = [
+			"From: peer-sender@example.com",
+			"To: peer-first@example.com, peer-second@example.com",
+			`Message-ID: ${result.result.messageId}`,
+			"Subject: Peer raw replay",
+			"Content-Type: application/octet-stream",
+			"",
+			"",
+		].join("\n");
+		expect(Buffer.from(String(detail.result?.rawBase64), "base64")).toEqual(
+			Buffer.concat([Buffer.from(deliveredHeader), Buffer.from(rawBody)])
+		);
+		expect(
+			await getReceivedOrigin(instanceB, result.result.messageId, "email-b")
+		).toBe("eml");
+	});
+
 	test("rejects malformed cursors belonging to a peer source", async ({
 		expect,
 	}) => {
@@ -2280,6 +2644,30 @@ describe("Local Explorer email aggregation", () => {
 			})
 		);
 		try {
+			const rawSend = await dispatchExplorerApi(
+				instanceA,
+				`/local/email/routing/send?worker=${unavailableWorker}`,
+				{
+					method: "POST",
+					headers: { "Content-Type": "message/rfc822" },
+					body: [
+						"From: sender@example.com",
+						"To: recipient@example.com",
+						"",
+						"Body",
+					].join("\r\n"),
+				}
+			);
+			expect(rawSend.status).toBe(502);
+			expect(await rawSend.json()).toMatchObject({
+				errors: [
+					{
+						code: 10603,
+						message: `Worker '${unavailableWorker}' is temporarily unavailable in this dev session.`,
+					},
+				],
+			});
+
 			const response = await expectExplorerApiResponse(
 				instanceA,
 				`/local/email/routing?email_id=${encodeURIComponent("<missing@example.com>")}`,

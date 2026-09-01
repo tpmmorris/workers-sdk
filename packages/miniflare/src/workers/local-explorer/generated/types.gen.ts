@@ -1853,6 +1853,10 @@ export type EmailSendRoutingData = {
 
 export type EmailSendRoutingErrors = {
 	/**
+	 * The request Content-Type is missing or unsupported.
+	 */
+	415: WorkersApiResponseCommonFailure;
+	/**
 	 * Send test email failure.
 	 */
 	"4XX": WorkersApiResponseCommonFailure;

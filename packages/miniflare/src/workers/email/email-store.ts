@@ -24,6 +24,7 @@ import {
 } from "./capture";
 import {
 	zEmailBase,
+	zEmailCaptureOrigin,
 	zEmailHeaders,
 	zEmailHandlerEvent,
 	zEmailHandlerForward,
@@ -152,6 +153,7 @@ const zStoredEmailReplyMetadata = zStoredEmailReply.extend({
 	captureTruncated: z.boolean().optional(),
 });
 export const zStoredRoutingEmailSummary = zEmailBase.extend({
+	origin: zEmailCaptureOrigin.optional(),
 	to: z.string(),
 	cc: z.array(z.string()).optional(),
 	headers: z.record(z.string(), z.string()).optional(),

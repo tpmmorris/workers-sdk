@@ -15,6 +15,7 @@
 
 import type {
 	EmailAttachment,
+	EmailCaptureOrigin,
 	EmailHandlerForward,
 	EmailHandlerReply,
 	EmailHandlerResult,
@@ -25,6 +26,7 @@ import type {
 } from "./contracts";
 
 export type {
+	EmailCaptureOrigin,
 	EmailHandlerEvent,
 	EmailHandlerForward,
 	EmailHandlerReply,
@@ -35,6 +37,10 @@ interface StoredCaptureMetadata {
 	captureTruncated?: boolean;
 }
 
+interface StoredRoutingMetadata {
+	origin?: EmailCaptureOrigin;
+}
+
 type StoredEmailHandlerReply = EmailHandlerReply & StoredCaptureMetadata;
 
 export type StoredRoutingEmail = Omit<
@@ -42,7 +48,8 @@ export type StoredRoutingEmail = Omit<
 	"forwards" | "replies"
 > &
 	Omit<EmailHandlerResult, "replies"> &
-	StoredCaptureMetadata & {
+	StoredCaptureMetadata &
+	StoredRoutingMetadata & {
 		replies: StoredEmailHandlerReply[];
 	};
 
@@ -61,6 +68,7 @@ export type StoredRoutingEmailSummary = Omit<
 	EmailRoutingItem,
 	"forwards" | "replies"
 > & {
+	origin?: EmailCaptureOrigin;
 	forwards: EmailHandlerForward[];
 	replies: Array<Omit<EmailHandlerReply, "raw" | "rawBase64">>;
 };

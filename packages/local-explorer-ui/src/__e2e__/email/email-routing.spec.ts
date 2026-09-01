@@ -9,6 +9,7 @@ import {
 	mockEmailRoutingDetail,
 	mockEmptyEmailSending,
 } from "./utils";
+import type { Request } from "playwright-chromium";
 
 afterEach(async () => {
 	await cleanupEmailMocks();
@@ -253,6 +254,374 @@ describe("email routing", () => {
 		expect(
 			await page.getByText(/Attachments must total less than/).count()
 		).toBe(0);
+	});
+
+	test("validates dropped .eml files and restores the structured draft", async ({
+		expect,
+	}) => {
+		await mockEmailRoutingDetail();
+		await loadWorker();
+		await page.goto(
+			new URL(
+				"/cdn-cgi/local/explorer/email/routing?worker=worker-1",
+				viteUrl
+			).toString()
+		);
+		await page.getByRole("button", { name: "Send Test Email" }).click();
+		await page.locator("#test-email-from").fill("sender@example.com");
+		await page.getByLabel("Subject").fill("Preserved subject");
+		await page.getByLabel("Attachments").setInputFiles({
+			buffer: Buffer.from("preserved attachment"),
+			mimeType: "text/plain",
+			name: "preserved.txt",
+		});
+		await page.getByText("preserved.txt").waitFor();
+
+		const dropZone = page.getByRole("button", { name: /Upload an \.eml file/ });
+		await dropZone.evaluate((element) => {
+			const transfer = new DataTransfer();
+			transfer.items.add(new File(["first"], "first.eml"));
+			transfer.items.add(new File(["second"], "second.eml"));
+			element.dispatchEvent(
+				new DragEvent("drop", {
+					bubbles: true,
+					cancelable: true,
+					dataTransfer: transfer,
+				})
+			);
+		});
+		await page.getByText("Select exactly one .eml file.").waitFor();
+		expect(await page.locator("#test-email-from").isVisible()).toBe(true);
+
+		await page.getByLabel("Upload .eml file").setInputFiles({
+			buffer: Buffer.from("not an email file"),
+			mimeType: "text/plain",
+			name: "message.txt",
+		});
+		await page.getByText("Select a file with a .eml extension.").waitFor();
+
+		await dropZone.evaluate((element) => {
+			const transfer = new DataTransfer();
+			transfer.items.add(
+				new File([new Uint8Array(25 * 1024 * 1024 + 1)], "too-large.eml")
+			);
+			element.dispatchEvent(
+				new DragEvent("drop", {
+					bubbles: true,
+					cancelable: true,
+					dataTransfer: transfer,
+				})
+			);
+		});
+		await page
+			.getByText("Select a .eml file that is 25 MiB or smaller.")
+			.waitFor();
+
+		await dropZone.evaluate((element) => {
+			const transfer = new DataTransfer();
+			transfer.items.add(
+				new File(
+					["From: sender@example.com\r\nTo: recipient@example.com\r\n\r\nbody"],
+					"DROPPED.EML",
+					{ type: "application/octet-stream" }
+				)
+			);
+			element.dispatchEvent(
+				new DragEvent("drop", {
+					bubbles: true,
+					cancelable: true,
+					dataTransfer: transfer,
+				})
+			);
+		});
+		await page.getByText("DROPPED.EML").waitFor();
+		expect(await page.locator("#test-email-from").count()).toBe(0);
+		expect(await page.getByText("or compose manually").count()).toBe(0);
+
+		await page.getByRole("button", { name: "Remove", exact: true }).click();
+		expect(await page.locator("#test-email-from").inputValue()).toBe(
+			"sender@example.com"
+		);
+		expect(await page.getByLabel("Subject").inputValue()).toBe(
+			"Preserved subject"
+		);
+		await page.getByText("preserved.txt").waitFor();
+	});
+
+	test("opens the .eml picker from the keyboard", async ({ expect }) => {
+		await mockEmailRoutingDetail();
+		await loadWorker();
+		await page.goto(
+			new URL(
+				"/cdn-cgi/local/explorer/email/routing?worker=worker-1",
+				viteUrl
+			).toString()
+		);
+		await page.getByRole("button", { name: "Send Test Email" }).click();
+
+		const fileChooserPromise = page.waitForEvent("filechooser");
+		const dropZone = page.getByRole("button", { name: /Upload an \.eml file/ });
+		await dropZone.focus();
+		await page.keyboard.press("Enter");
+		const fileChooser = await fileChooserPromise;
+		await fileChooser.setFiles({
+			buffer: Buffer.from(
+				"From: sender@example.com\r\nTo: recipient@example.com\r\n\r\nbody"
+			),
+			mimeType: "message/rfc822",
+			name: "KEYBOARD.EML",
+		});
+		await page.getByText("KEYBOARD.EML").waitFor();
+		expect(await page.getByRole("button", { name: "Remove" }).count()).toBe(1);
+	});
+
+	test("retries raw sends without saving a structured draft", async ({
+		expect,
+	}) => {
+		await mockEmailRoutingDetail();
+		await loadWorker();
+		let attempts = 0;
+		let listRequests = 0;
+		let releaseSuccess: (() => void) | undefined;
+		const successReleased = new Promise<void>((resolve) => {
+			releaseSuccess = resolve;
+		});
+		const sentBodies: Buffer[] = [];
+		const contentTypes: Array<string | undefined> = [];
+		function countListRequest(request: Request): void {
+			const url = new URL(request.url());
+			if (
+				request.method() === "GET" &&
+				url.pathname.endsWith("/local/email/routing")
+			) {
+				listRequests++;
+			}
+		}
+		page.on("request", countListRequest);
+		await page.route(EMAIL_ROUTING_SEND_ROUTE, async (route) => {
+			attempts++;
+			const body = route.request().postDataBuffer();
+			if (body) {
+				sentBodies.push(body);
+			}
+			contentTypes.push(route.request().headers()["content-type"]);
+			if (attempts === 1) {
+				await route.fulfill({
+					body: JSON.stringify({
+						errors: [{ code: 10600, message: "Temporary raw failure." }],
+						messages: [],
+						result: null,
+						success: false,
+					}),
+					contentType: "application/json",
+					status: 500,
+				});
+				return;
+			}
+			await successReleased;
+			await fulfillApiResult(route, {
+				messageId: "<raw-send@example.com>",
+				outcome: "ok",
+			});
+		});
+		await page.goto(
+			new URL(
+				"/cdn-cgi/local/explorer/email/routing?worker=worker-1",
+				viteUrl
+			).toString()
+		);
+		const initialListRequests = listRequests;
+		const editAndResend = page.getByRole("button", { name: "Edit and resend" });
+		await page.getByRole("button", { name: "Send Test Email" }).click();
+		await page.getByLabel("Upload .eml file").setInputFiles({
+			buffer: Buffer.from(
+				"From: sender@example.com\r\nTo: recipient@example.com\r\n\r\nraw body"
+			),
+			mimeType: "application/octet-stream",
+			name: "retry.eml",
+		});
+		const sendButton = page.locator('button[type="submit"]');
+		await sendButton.click();
+		await page.getByText("Temporary raw failure.").waitFor();
+		await page.getByText("retry.eml").waitFor();
+		await expect.poll(() => sendButton.isEnabled()).toBe(true);
+
+		await page.locator("form").evaluate((form) => {
+			form.dispatchEvent(
+				new Event("submit", { bubbles: true, cancelable: true })
+			);
+			form.dispatchEvent(
+				new Event("submit", { bubbles: true, cancelable: true })
+			);
+		});
+		await expect.poll(() => attempts).toBe(2);
+		await expect.poll(() => sendButton.isDisabled()).toBe(true);
+		await page.keyboard.press("Escape");
+		await page.getByRole("heading", { name: "Send test email" }).waitFor();
+		expect(attempts).toBe(2);
+		expect(contentTypes).toEqual(["message/rfc822", "message/rfc822"]);
+		expect(sentBodies).toHaveLength(2);
+		expect(sentBodies[0]?.equals(sentBodies[1] ?? Buffer.alloc(0))).toBe(true);
+		expect(sentBodies[0]?.toString()).toContain("raw body");
+		releaseSuccess?.();
+		await expect
+			.poll(() =>
+				page.getByRole("heading", { name: "Send test email" }).count()
+			)
+			.toBe(0);
+		await expect.poll(() => listRequests).toBeGreaterThan(initialListRequests);
+		expect(await editAndResend.isDisabled()).toBe(true);
+		page.off("request", countListRequest);
+	});
+
+	test("closes and refreshes after captured handler rejection and exception results", async ({
+		expect,
+	}) => {
+		await mockEmailRoutingDetail();
+		await loadWorker();
+		let attempts = 0;
+		let listRequests = 0;
+		function countListRequest(request: Request): void {
+			const url = new URL(request.url());
+			if (
+				request.method() === "GET" &&
+				url.pathname.endsWith("/local/email/routing")
+			) {
+				listRequests++;
+			}
+		}
+		page.on("request", countListRequest);
+		await page.route(EMAIL_ROUTING_SEND_ROUTE, async (route) => {
+			attempts++;
+			await fulfillApiResult(
+				route,
+				attempts === 1
+					? {
+							messageId: "<rejected-raw@example.com>",
+							outcome: "ok",
+							rejectReason: "Mailbox unavailable",
+						}
+					: {
+							messageId: "<exception-raw@example.com>",
+							outcome: "exception",
+						}
+			);
+		});
+		await page.goto(
+			new URL(
+				"/cdn-cgi/local/explorer/email/routing?worker=worker-1",
+				viteUrl
+			).toString()
+		);
+		await expect.poll(() => listRequests).toBeGreaterThan(0);
+		const initialListRequests = listRequests;
+		await page.getByRole("button", { name: "Send Test Email" }).click();
+		await page.getByLabel("Upload .eml file").setInputFiles({
+			buffer: Buffer.from(
+				"From: sender@example.com\r\nTo: recipient@example.com\r\n\r\nraw body"
+			),
+			mimeType: "message/rfc822",
+			name: "handler-outcome.eml",
+		});
+		const sendButton = page.locator('button[type="submit"]');
+		await sendButton.click();
+		await page
+			.getByText(
+				"The Worker's email() handler rejected the message: Mailbox unavailable"
+			)
+			.waitFor();
+		await expect
+			.poll(() =>
+				page.getByRole("heading", { name: "Send test email" }).count()
+			)
+			.toBe(0);
+		await expect.poll(() => listRequests).toBeGreaterThan(initialListRequests);
+
+		const afterRejectionListRequests = listRequests;
+		await page.getByRole("button", { name: "Send Test Email" }).click();
+		await page.getByLabel("Upload .eml file").setInputFiles({
+			buffer: Buffer.from(
+				"From: sender@example.com\r\nTo: recipient@example.com\r\n\r\nraw body"
+			),
+			mimeType: "message/rfc822",
+			name: "handler-outcome.eml",
+		});
+		await sendButton.click();
+		await page
+			.getByText("The Worker's email() handler threw an exception.")
+			.waitFor();
+		await expect
+			.poll(() =>
+				page.getByRole("heading", { name: "Send test email" }).count()
+			)
+			.toBe(0);
+		await expect
+			.poll(() => listRequests)
+			.toBeGreaterThan(afterRejectionListRequests);
+		expect(attempts).toBe(2);
+		page.off("request", countListRequest);
+	});
+
+	test("closes and refreshes after a raw send is captured without an email handler", async ({
+		expect,
+	}) => {
+		await mockEmailRoutingDetail();
+		await loadWorker();
+		let listRequests = 0;
+		function countListRequest(request: Request): void {
+			const url = new URL(request.url());
+			if (
+				request.method() === "GET" &&
+				url.pathname.endsWith("/local/email/routing")
+			) {
+				listRequests++;
+			}
+		}
+		page.on("request", countListRequest);
+		await page.route(EMAIL_ROUTING_SEND_ROUTE, async (route) => {
+			await route.fulfill({
+				body: JSON.stringify({
+					errors: [
+						{
+							code: 10602,
+							message: "Worker 'worker-1' does not export an email() handler.",
+						},
+					],
+					messages: [],
+					result: null,
+					success: false,
+				}),
+				contentType: "application/json",
+				status: 400,
+			});
+		});
+		await page.goto(
+			new URL(
+				"/cdn-cgi/local/explorer/email/routing?worker=worker-1",
+				viteUrl
+			).toString()
+		);
+		await expect.poll(() => listRequests).toBeGreaterThan(0);
+		const initialListRequests = listRequests;
+		await page.getByRole("button", { name: "Send Test Email" }).click();
+		await page.getByLabel("Upload .eml file").setInputFiles({
+			buffer: Buffer.from(
+				"From: sender@example.com\r\nTo: recipient@example.com\r\n\r\nraw body"
+			),
+			mimeType: "message/rfc822",
+			name: "missing-handler.eml",
+		});
+		await page.locator('button[type="submit"]').click();
+		await page
+			.getByText("Worker 'worker-1' does not export an email() handler.")
+			.waitFor();
+		await expect
+			.poll(() =>
+				page.getByRole("heading", { name: "Send test email" }).count()
+			)
+			.toBe(0);
+		await expect.poll(() => listRequests).toBeGreaterThan(initialListRequests);
+		page.off("request", countListRequest);
 	});
 
 	test("edits and resends the last successful email with multiline headers", async ({

@@ -4,13 +4,15 @@ import { AddressFields } from "./AddressFields";
 import { AttachmentsSection } from "./AttachmentsSection";
 import { BodyFields } from "./BodyFields";
 import { CustomHeadersSection } from "./CustomHeadersSection";
+import { RawEmailFileSection } from "./RawEmailFileSection";
 import { useSendTestEmailComposer } from "./useSendTestEmailComposer";
 import type { TestEmailDraft } from "./types";
 
 export interface SendTestEmailDialogProps {
 	initialDraft?: TestEmailDraft;
 	onOpenChange: (open: boolean) => void;
-	onSent: (draft: TestEmailDraft) => void;
+	onSendSuccess: () => void;
+	onStructuredSent: (draft: TestEmailDraft) => void;
 	open: boolean;
 	worker?: string;
 }
@@ -19,7 +21,8 @@ export interface SendTestEmailDialogProps {
 export function SendTestEmailDialog({
 	initialDraft,
 	onOpenChange,
-	onSent,
+	onSendSuccess,
+	onStructuredSent,
 	open,
 	worker,
 }: SendTestEmailDialogProps): JSX.Element {
@@ -34,7 +37,8 @@ export function SendTestEmailDialog({
 		initialDraft,
 		onError,
 		onOpenChange,
-		onSent,
+		onSendSuccess,
+		onStructuredSent,
 		open,
 		worker,
 	});
@@ -66,41 +70,55 @@ export function SendTestEmailDialog({
 					}}
 				>
 					<div className="max-h-[60vh] min-w-0 space-y-4 overflow-y-auto px-6 py-5">
-						<AddressFields
-							errors={{
-								fromError: state.fromError,
-								toError: state.toError,
-							}}
-							onChange={composer.fields.change}
-							values={{
-								bcc: state.bcc,
-								cc: state.cc,
-								from: state.from,
-								replyTo: state.replyTo,
-								subject: state.subject,
-								to: state.to,
-							}}
+						<RawEmailFileSection
+							error={state.rawFileError}
+							file={state.rawFile}
+							onFilesSelected={composer.rawFile.select}
+							onRemove={composer.rawFile.remove}
 						/>
-						<CustomHeadersSection
-							headers={state.headers}
-							onAdd={composer.headers.add}
-							onChange={composer.headers.change}
-							onRemove={composer.headers.remove}
-						/>
-						<BodyFields
-							html={state.html}
-							onHtmlChange={(value) => composer.fields.change("html", value)}
-							onTextChange={(value) => composer.fields.change("text", value)}
-							text={state.text}
-						/>
-						<AttachmentsSection
-							attachments={state.attachments}
-							error={state.attachmentsError}
-							onFilesSelected={(files) => {
-								void composer.attachments.addFiles(files);
-							}}
-							onRemove={composer.attachments.remove}
-						/>
+						{!state.rawFile && (
+							<>
+								<AddressFields
+									errors={{
+										fromError: state.fromError,
+										toError: state.toError,
+									}}
+									onChange={composer.fields.change}
+									values={{
+										bcc: state.bcc,
+										cc: state.cc,
+										from: state.from,
+										replyTo: state.replyTo,
+										subject: state.subject,
+										to: state.to,
+									}}
+								/>
+								<CustomHeadersSection
+									headers={state.headers}
+									onAdd={composer.headers.add}
+									onChange={composer.headers.change}
+									onRemove={composer.headers.remove}
+								/>
+								<BodyFields
+									html={state.html}
+									onHtmlChange={(value) =>
+										composer.fields.change("html", value)
+									}
+									onTextChange={(value) =>
+										composer.fields.change("text", value)
+									}
+									text={state.text}
+								/>
+								<AttachmentsSection
+									attachments={state.attachments}
+									error={state.attachmentsError}
+									onFilesSelected={(files) => {
+										void composer.attachments.addFiles(files);
+									}}
+									onRemove={composer.attachments.remove}
+								/>
+							</>
+						)}
 					</div>
 
 					<div className="flex justify-end gap-2 border-t border-kumo-fill px-6 py-4">

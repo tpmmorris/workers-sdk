@@ -52,6 +52,8 @@ export interface TestEmailComposerState {
 	html: string;
 	pendingAttachmentReads: number;
 	replyTo: string;
+	rawFile: File | null;
+	rawFileError: string | null;
 	sending: boolean;
 	subject: string;
 	text: string;

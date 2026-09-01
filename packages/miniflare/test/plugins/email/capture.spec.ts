@@ -7,8 +7,26 @@ import {
 	jsonByteLength,
 	MAX_EMAIL_BODY_BYTES,
 	MAX_EMAIL_ROW_VALUE_BYTES,
+	MAX_PRODUCTION_EMAIL_BYTES,
+	readProductionLimitedEmailBody,
 	stripEmailHeader,
 } from "../../../src/workers/email/capture";
+
+test("rejects a declared oversize email without consuming its body", async ({
+	expect,
+}) => {
+	let consumed = false;
+	const result = await readProductionLimitedEmailBody(
+		async () => {
+			consumed = true;
+			return new ArrayBuffer(0);
+		},
+		String(MAX_PRODUCTION_EMAIL_BYTES + 1)
+	);
+
+	expect(result).toEqual({ tooLarge: true });
+	expect(consumed).toBe(false);
+});
 
 test("fits raw Base64 into a body row", ({ expect }) => {
 	const raw = new TextEncoder().encode("x".repeat(2_000_000));

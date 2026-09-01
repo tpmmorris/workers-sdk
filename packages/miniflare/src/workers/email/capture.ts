@@ -18,6 +18,31 @@ export const MAX_EMAIL_ROW_BYTES = 2_000_000;
  */
 export const MAX_PRODUCTION_EMAIL_BYTES = 25 * 1024 * 1024;
 
+export type ProductionLimitedEmailBody =
+	| { tooLarge: true }
+	| { tooLarge: false; raw: Uint8Array };
+
+/**
+ * Reads an email request body while enforcing the production delivery limit.
+ * A declared oversize body is rejected without invoking the body reader.
+ */
+export async function readProductionLimitedEmailBody(
+	readBody: () => Promise<ArrayBuffer>,
+	contentLength?: string
+): Promise<ProductionLimitedEmailBody> {
+	if (
+		contentLength !== undefined &&
+		Number.isFinite(Number(contentLength)) &&
+		Number(contentLength) > MAX_PRODUCTION_EMAIL_BYTES
+	) {
+		return { tooLarge: true };
+	}
+	const raw = new Uint8Array(await readBody());
+	return raw.byteLength > MAX_PRODUCTION_EMAIL_BYTES
+		? { tooLarge: true }
+		: { tooLarge: false, raw };
+}
+
 /**
  * Reserve a small amount for SQLite's record header and the non-JSON columns
  * (`kind`, `id`, and `created_at`). The remaining bytes are available to the

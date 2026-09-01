@@ -410,8 +410,7 @@ app.get(
 app.post(
 	"/api/local/email/routing/send",
 	validateQuery(zEmailSendRoutingData.shape.query),
-	validateRequestBody(zEmailSendRoutingData.shape.body),
-	(c) => sendTestEmail(c, c.req.valid("json"), c.req.valid("query").worker)
+	(c) => sendTestEmail(c, c.req.valid("query").worker)
 );
 
 app.get(

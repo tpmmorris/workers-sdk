@@ -176,11 +176,13 @@ function EmailRoutingView(): JSX.Element {
 			<SendTestEmailDialog
 				initialDraft={dialogDraft}
 				onOpenChange={setDialogOpen}
-				onSent={(draft) => {
+				onSendSuccess={() => {
+					void refresh();
+				}}
+				onStructuredSent={(draft) => {
 					if (worker) {
 						setDrafts((current) => ({ ...current, [worker]: draft }));
 					}
-					void refresh();
 				}}
 				open={dialogOpen}
 				worker={worker}

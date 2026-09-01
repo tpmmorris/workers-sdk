@@ -1,5 +1,9 @@
 import { z } from "zod";
 
+export const zEmailCaptureOrigin = z.enum(["composer", "eml"]);
+
+export type EmailCaptureOrigin = z.infer<typeof zEmailCaptureOrigin>;
+
 export type EmailHandlerEvent =
 	| {
 			type: "received" | "reject" | "unhandled";
