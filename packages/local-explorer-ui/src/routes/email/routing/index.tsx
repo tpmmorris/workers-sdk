@@ -10,7 +10,7 @@ import { emailListRouting, localExplorerListWorkers } from "../../../api";
 import { Breadcrumbs } from "../../../components/Breadcrumbs";
 import { EmailList } from "../../../components/email/EmailList";
 import { EMAIL_PAGE_SIZE } from "../../../components/email/EmailPagination";
-import { SendTestEmailDialog } from "../../../components/email/SendTestEmailDialog";
+import { SendTestEmailDialog } from "../../../components/email/send-test-email";
 import { useTestEmailDrafts } from "../../../components/email/TestEmailDraftsContext";
 import { ResourceError } from "../../../components/ResourceError";
 import { getSelectedWorker } from "../../../components/WorkerSelector";
@@ -19,7 +19,7 @@ import { formatEmailAddress } from "../../../utils/format";
 import { toEmailId } from "../shared/types";
 import { useCursorPaginatedList } from "../shared/useCursorPaginatedList";
 import type { EmailRoutingItem } from "../../../api";
-import type { TestEmailDraft } from "../../../components/email/TestEmailDraftsContext";
+import type { TestEmailDraft } from "../../../components/email/send-test-email";
 
 export const Route = createFileRoute("/email/routing/")({
 	component: EmailRoutingView,

@@ -1,30 +1,6 @@
 import { createContext, useContext, useMemo, useState } from "react";
-import type { EmailSendRequest } from "../../api";
+import type { TestEmailDraft } from "./send-test-email";
 import type { Dispatch, JSX, PropsWithChildren, SetStateAction } from "react";
-
-type AttachmentInput = NonNullable<EmailSendRequest["attachments"]>[number];
-
-export interface SelectedTestEmailAttachment extends AttachmentInput {
-	size: number;
-}
-
-export interface TestEmailHeader {
-	name: string;
-	value: string;
-}
-
-export interface TestEmailDraft {
-	from: string;
-	to: string;
-	cc: string;
-	bcc: string;
-	replyTo: string;
-	subject: string;
-	headers: TestEmailHeader[];
-	text: string;
-	html: string;
-	attachments: SelectedTestEmailAttachment[];
-}
 
 type TestEmailDrafts = Record<string, TestEmailDraft>;
 
