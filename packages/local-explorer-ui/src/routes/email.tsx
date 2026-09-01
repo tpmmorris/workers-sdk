@@ -6,7 +6,6 @@ import {
 	useNavigate,
 } from "@tanstack/react-router";
 import { useEffect, type JSX } from "react";
-import { TestEmailDraftsProvider } from "../components/email/TestEmailDraftsContext";
 import { getSelectedWorker } from "../components/WorkerSelector";
 
 export const Route = createFileRoute("/email")({
@@ -72,9 +71,5 @@ function EmailLayout(): JSX.Element {
 		}
 	}, [listRoute, navigate, routingDetailParams, search.worker, selectedWorker]);
 
-	return (
-		<TestEmailDraftsProvider>
-			<Outlet />
-		</TestEmailDraftsProvider>
-	);
+	return <Outlet />;
 }

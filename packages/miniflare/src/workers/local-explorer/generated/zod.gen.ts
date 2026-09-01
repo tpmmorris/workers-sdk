@@ -587,6 +587,40 @@ export const zEmailSendRequest = z.object({
 		.optional(),
 });
 
+export const zEmailComposerDraft = z.object({
+	from: z.string(),
+	to: z.array(z.string()).min(1),
+	cc: z.array(z.string()).optional(),
+	replyTo: z.string().optional(),
+	subject: z.string(),
+	text: z.string().optional(),
+	html: z.string().optional(),
+	headers: z.record(z.string(), z.string()).optional(),
+	attachments: z
+		.array(
+			z.object({
+				filename: z.string(),
+				type: z.string(),
+				content: z.string(),
+				contentId: z.string().optional(),
+				disposition: z.enum(["inline", "attachment"]).optional(),
+			})
+		)
+		.optional(),
+});
+
+export const zEmailResendDraft = z.object({
+	draft: zEmailComposerDraft,
+	capturedPortion: z.boolean(),
+});
+
+export const zEmailResendResult = z.object({
+	messageId: z.string(),
+	outcome: z.enum(["ok", "exception"]),
+	rejectReason: z.string().optional(),
+	capturedPortion: z.boolean(),
+});
+
 /**
  * Metadata describing an attachment on a captured email, without its content.
  */
@@ -622,6 +656,9 @@ export const zEmailRoutingItem = z.object({
 	forwards: z.array(zEmailHandlerForward),
 	replies: z.array(zEmailHandlerReply),
 	events: z.array(zEmailHandlerEvent),
+	editAndResendAvailable: z.boolean(),
+	editAndResendUnavailableReason: z.string().optional(),
+	capturedPortion: z.boolean(),
 });
 
 export const zEmailRoutingDetail = z.object({
@@ -641,6 +678,9 @@ export const zEmailRoutingDetail = z.object({
 	forwards: z.array(zEmailHandlerForward),
 	replies: z.array(zEmailHandlerReply),
 	events: z.array(zEmailHandlerEvent),
+	editAndResendAvailable: z.boolean(),
+	editAndResendUnavailableReason: z.string().optional(),
+	capturedPortion: z.boolean(),
 	text: z.string().optional(),
 	html: z.string().optional(),
 	raw: z.string(),
@@ -1116,6 +1156,7 @@ export const zEmailSendRoutingData = z.object({
 	path: z.never().optional(),
 	query: z.object({
 		worker: z.string(),
+		incomplete_source: z.boolean().optional(),
 	}),
 });
 
@@ -1131,6 +1172,42 @@ export const zEmailSendRoutingResponse = zWorkersApiResponseCommon.and(
 				rejectReason: z.string().optional(),
 			})
 			.optional(),
+	})
+);
+
+export const zEmailResendRoutingData = z.object({
+	body: z.never().optional(),
+	path: z.never().optional(),
+	query: z.object({
+		worker: z.string(),
+		message_id: z.string(),
+	}),
+});
+
+/**
+ * Resend captured email response.
+ */
+export const zEmailResendRoutingResponse = zWorkersApiResponseCommon.and(
+	z.object({
+		result: zEmailResendResult.optional(),
+	})
+);
+
+export const zEmailResendDraftRoutingData = z.object({
+	body: z.never().optional(),
+	path: z.never().optional(),
+	query: z.object({
+		worker: z.string(),
+		message_id: z.string(),
+	}),
+});
+
+/**
+ * Composer projection response.
+ */
+export const zEmailResendDraftRoutingResponse = zWorkersApiResponseCommon.and(
+	z.object({
+		result: zEmailResendDraft.optional(),
 	})
 );
 

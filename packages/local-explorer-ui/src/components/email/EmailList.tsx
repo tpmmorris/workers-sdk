@@ -10,6 +10,7 @@ export interface EmailListRow {
 	secondaryTitle: string;
 	timestamp: string;
 	warning?: string;
+	warnings?: string[];
 }
 
 interface EmailListProps<T> {
@@ -27,6 +28,7 @@ interface EmailListProps<T> {
 	onRefresh: () => void;
 	onRowClick: (id: string) => void;
 	refreshing: boolean;
+	renderRowActions?: (item: T, row: EmailListRow) => ReactNode;
 	selectedId?: string | null;
 	style?: CSSProperties;
 	testId?: string;
@@ -48,6 +50,7 @@ export function EmailList<T>({
 	onRefresh,
 	onRowClick,
 	refreshing,
+	renderRowActions,
 	selectedId,
 	style,
 	testId,
@@ -102,44 +105,56 @@ export function EmailList<T>({
 						{items.map((item) => {
 							const row = getRow(item);
 							const selected = selectedId === row.id;
+							const warnings = [
+								...(row.warning ? [row.warning] : []),
+								...(row.warnings ?? []),
+							];
 							return (
-								<button
-									aria-pressed={selectedId === undefined ? undefined : selected}
-									className={`grid h-12 min-h-12 w-full shrink-0 grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-3 border-b border-kumo-fill px-4 text-left text-sm last:border-b-0 hover:bg-kumo-fill ${
+								<div
+									className={`flex h-12 min-h-12 w-full shrink-0 items-stretch border-b border-kumo-fill text-sm last:border-b-0 ${
 										selected ? "bg-kumo-fill" : "bg-kumo-base"
 									}`}
 									key={row.id}
-									onClick={() => onRowClick(row.id)}
-									type="button"
 								>
-									<span className="flex min-w-0 items-center gap-2">
-										{row.warning ? (
-											<span
-												aria-label={row.warning}
-												className="flex h-lh shrink-0 items-center text-kumo-danger"
-												role="img"
-												title={row.warning}
-											>
-												<WarningIcon aria-hidden="true" size={16} />
-											</span>
-										) : null}
-										<span
-											className="truncate font-medium text-kumo-default"
-											title={row.primary}
-										>
-											{row.primary}
-										</span>
-									</span>
-									<span
-										className="truncate text-kumo-subtle"
-										title={row.secondaryTitle}
+									<button
+										aria-pressed={
+											selectedId === undefined ? undefined : selected
+										}
+										className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-3 px-4 text-left hover:bg-kumo-fill"
+										onClick={() => onRowClick(row.id)}
+										type="button"
 									>
-										{row.secondary}
-									</span>
-									<span className="shrink-0 text-kumo-subtle">
-										{row.timestamp}
-									</span>
-								</button>
+										<span className="flex min-w-0 items-center gap-2">
+											{warnings.map((warning) => (
+												<span
+													aria-label={warning}
+													className="flex h-lh shrink-0 items-center text-kumo-danger"
+													key={warning}
+													role="img"
+													title={warning}
+												>
+													<WarningIcon aria-hidden="true" size={16} />
+												</span>
+											))}
+											<span
+												className="truncate font-medium text-kumo-default"
+												title={row.primary}
+											>
+												{row.primary}
+											</span>
+										</span>
+										<span
+											className="truncate text-kumo-subtle"
+											title={row.secondaryTitle}
+										>
+											{row.secondary}
+										</span>
+										<span className="shrink-0 text-kumo-subtle">
+											{row.timestamp}
+										</span>
+									</button>
+									{renderRowActions?.(item, row)}
+								</div>
 							);
 						})}
 					</div>

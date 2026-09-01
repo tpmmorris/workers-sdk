@@ -15,7 +15,6 @@ export interface TestEmailDraft {
 	from: string;
 	to: string;
 	cc: string;
-	bcc: string;
 	replyTo: string;
 	subject: string;
 	headers: TestEmailHeader[];
@@ -34,7 +33,6 @@ export type TestEmailComposerField =
 	| "from"
 	| "to"
 	| "cc"
-	| "bcc"
 	| "replyTo"
 	| "subject"
 	| "text"
@@ -44,7 +42,6 @@ export interface TestEmailComposerState {
 	attachments: SelectedTestEmailAttachment[];
 	attachmentsError: string | null;
 	attachmentReadGeneration: number;
-	bcc: string;
 	cc: string;
 	from: string;
 	fromError: string | null;

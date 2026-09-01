@@ -1,8 +1,9 @@
-import PostalMime, { decodeWords } from "postal-mime";
+import PostalMime, { addressParser, decodeWords } from "postal-mime";
 import { z } from "zod";
 import { EMAIL_STORE_SERVICE_NAME } from "../../../plugins/core/constants";
 import { CoreBindings, CorePaths } from "../../core";
 import { handleEmail } from "../../core/email";
+import { formatParsedAddress } from "../../email/address";
 import {
 	base64ToBytes,
 	bytesToBase64,
@@ -10,6 +11,8 @@ import {
 } from "../../email/capture";
 import {
 	zEmailHandlerResult,
+	zEmailResendDraft,
+	zEmailResendResult,
 	zEmailRoutingDetail,
 	zEmailRoutingItem,
 	zEmailSendingDetail,
@@ -20,6 +23,7 @@ import {
 	hasControlCharacters,
 	hasInvalidHeaderValueCharacters,
 	isHeaderName,
+	isManagedEmailHeaderName,
 	isMimeType,
 	normalizeBase64,
 } from "../../email/input-validation";
@@ -38,7 +42,9 @@ import {
 import { errorResponse, validationHook, wrapResponse } from "../common";
 import { zLocalExplorerListWorkersResponse } from "../generated/zod.gen";
 import type {
+	EmailCaptureContext,
 	EmailCaptureOrigin,
+	EmailComposerDraft,
 	EmailRoutingItem,
 	EmailSendingItem,
 	EmailSendRequest,
@@ -47,6 +53,7 @@ import type {
 	EmailListPage,
 	EmailStoreService,
 	StoredRoutingEmail,
+	StoredRoutingEmailSummary,
 } from "../../email/storage";
 import type { AppContext } from "../common";
 import type { zEmailListRoutingData } from "../generated/zod.gen";
@@ -55,6 +62,50 @@ const EMAIL_ERROR_NOT_FOUND = 10601;
 const EMAIL_ERROR_SEND_FAILED = 10602;
 const EMAIL_ERROR_PEER_UNAVAILABLE = 10603;
 const EMAIL_WARNING_CAPTURE_TRUNCATED = 10604;
+const EMAIL_EDIT_EML_UNAVAILABLE_REASON =
+	"Emails sent from uploaded .eml files cannot be edited and resent.";
+const EMAIL_EDIT_UNKNOWN_UNAVAILABLE_REASON =
+	"Only emails sent from the composer can be edited and resent.";
+const EMAIL_CAPTURED_PORTION_WARNING =
+	"Only the captured portion of this email is available and will be used.";
+
+function getRoutingCapabilities(email: {
+	origin?: EmailCaptureOrigin;
+	captureTruncated?: boolean;
+	incompleteSource?: boolean;
+}): Pick<
+	EmailRoutingItem,
+	| "editAndResendAvailable"
+	| "editAndResendUnavailableReason"
+	| "capturedPortion"
+> {
+	const editAndResendAvailable = email.origin === "composer";
+	return {
+		editAndResendAvailable,
+		...(editAndResendAvailable
+			? {}
+			: {
+					editAndResendUnavailableReason:
+						email.origin === "eml"
+							? EMAIL_EDIT_EML_UNAVAILABLE_REASON
+							: EMAIL_EDIT_UNKNOWN_UNAVAILABLE_REASON,
+				}),
+		capturedPortion:
+			email.captureTruncated === true || email.incompleteSource === true,
+	};
+}
+
+function toRoutingItem(email: StoredRoutingEmailSummary): EmailRoutingItem {
+	const { origin, captureTruncated, incompleteSource, ...publicEmail } = email;
+	return {
+		...publicEmail,
+		...getRoutingCapabilities({
+			origin,
+			captureTruncated,
+			incompleteSource,
+		}),
+	};
+}
 
 function getEmailStore(c: AppContext): EmailStoreService {
 	return c.env[CoreBindings.SERVICE_EMAIL_STORE];
@@ -650,7 +701,8 @@ const receivedEmailListDescriptor: EmailListDescriptor<EmailRoutingItem> = {
 			ReturnType<EmailStoreService["listReceived"]>
 		> &
 			Disposable;
-		return structuredClone(result);
+		const cloned = structuredClone(result);
+		return { ...cloned, items: cloned.items.map(toRoutingItem) };
 	},
 };
 
@@ -808,7 +860,13 @@ export async function getReceivedEmail(
 	}
 	// Decode MIME "encoded-word" headers (e.g. `=?utf-8?B?...?=`) in each reply's
 	// display text so the explorer shows readable subjects.
-	const { captureTruncated, replies: storedReplies, ...storedEmail } = email;
+	const {
+		captureTruncated,
+		incompleteSource,
+		origin,
+		replies: storedReplies,
+		...storedEmail
+	} = email;
 	let body: { text?: string; html?: string } = {};
 	if (email.rawBase64 !== undefined) {
 		try {
@@ -826,6 +884,11 @@ export async function getReceivedEmail(
 	);
 	const decoded = {
 		...storedEmail,
+		...getRoutingCapabilities({
+			origin,
+			captureTruncated,
+			incompleteSource,
+		}),
 		...body,
 		replies: storedReplies.map(
 			({ captureTruncated: _captureTruncated, ...reply }) => ({
@@ -835,11 +898,12 @@ export async function getReceivedEmail(
 		),
 	};
 	const messages = [];
-	if (captureTruncated) {
+	if (captureTruncated || incompleteSource) {
 		messages.push({
 			code: EMAIL_WARNING_CAPTURE_TRUNCATED,
-			message:
-				"Displayed received email content was truncated during local capture. The complete message was still delivered to the Worker.",
+			message: incompleteSource
+				? EMAIL_CAPTURED_PORTION_WARNING
+				: "Displayed received email content was truncated during local capture. The complete message was still delivered to the Worker.",
 		});
 	}
 	if (replyCaptureTruncated) {
@@ -956,11 +1020,11 @@ async function deliverTestEmail(
 		to: string;
 		id: string;
 		mime: string | Uint8Array;
-		origin: EmailCaptureOrigin;
+		captureContext?: EmailCaptureContext;
 		worker: string;
 	}
 ): Promise<Response | undefined> {
-	const { from, to, id, mime, origin, worker } = email;
+	const { from, to, id, mime, captureContext, worker } = email;
 
 	const deliverUrl = new URL(CorePaths.EMAIL, "http://localhost");
 	deliverUrl.searchParams.set("from", from);
@@ -988,7 +1052,7 @@ async function deliverTestEmail(
 		// the `@cloudflare/workers-types` version in scope; `handleEmail` uses
 		// only `waitUntil`, which both provide.
 		c.executionCtx as unknown as ExecutionContext,
-		origin
+		captureContext
 	);
 }
 
@@ -997,7 +1061,8 @@ async function deliverTestEmail(
  */
 export async function sendTestEmail(
 	c: AppContext,
-	worker?: string
+	worker?: string,
+	incompleteSource?: boolean
 ): Promise<Response> {
 	const contentType = c.req
 		.header("Content-Type")
@@ -1015,7 +1080,7 @@ export async function sendTestEmail(
 		if (!parsed.success) {
 			return validationHook(parsed, c);
 		}
-		return sendStructuredTestEmail(c, parsed.data, worker);
+		return sendStructuredTestEmail(c, parsed.data, worker, incompleteSource);
 	}
 	if (contentType === "message/rfc822") {
 		return sendRawTestEmail(c, worker);
@@ -1030,7 +1095,8 @@ export async function sendTestEmail(
 async function sendStructuredTestEmail(
 	c: AppContext,
 	body: EmailSendRequest,
-	worker?: string
+	worker?: string,
+	incompleteSource?: boolean
 ): Promise<Response> {
 	const invalidRequest = validateEmailRequest(body);
 	if (invalidRequest !== undefined) {
@@ -1053,7 +1119,10 @@ async function sendStructuredTestEmail(
 		if (owner) {
 			const response = await fetchFromPeer(
 				owner,
-				`/local/email/routing/send?worker=${encodeURIComponent(worker)}`,
+				`/local/email/routing/send?${new URLSearchParams({
+					worker,
+					...(incompleteSource ? { incomplete_source: "true" } : {}),
+				})}`,
 				{
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
@@ -1084,7 +1153,10 @@ async function sendStructuredTestEmail(
 		to,
 		id,
 		mime,
-		origin: "composer",
+		captureContext: {
+			origin: "composer",
+			...(incompleteSource ? { incompleteSource: true } : {}),
+		},
 		worker,
 		messageId,
 	});
@@ -1182,7 +1254,7 @@ async function sendRawTestEmail(
 		to,
 		id,
 		mime,
-		origin: "eml",
+		captureContext: { origin: "eml" },
 		worker,
 		messageId,
 	});
@@ -1221,19 +1293,29 @@ async function deliverPreparedTestEmail(
 		to: string;
 		id: string;
 		mime: string | Uint8Array;
-		origin: EmailCaptureOrigin;
+		captureContext?: EmailCaptureContext;
 		worker: string;
 		messageId: string;
+		capturedPortion?: boolean;
 	}
 ): Promise<Response> {
-	const { from, to, id, mime, origin, worker, messageId } = email;
+	const {
+		from,
+		to,
+		id,
+		mime,
+		captureContext,
+		worker,
+		messageId,
+		capturedPortion,
+	} = email;
 
 	const response = await deliverTestEmail(c, {
 		from,
 		to,
 		id,
 		mime,
-		origin,
+		captureContext,
 		worker,
 	});
 	if (response === undefined) {
@@ -1274,14 +1356,290 @@ async function deliverPreparedTestEmail(
 			`Worker '${worker}' does not export an email() handler.`
 		);
 	}
+	const responseResult = {
+		messageId,
+		outcome: result.outcome,
+		...(result.rejectReason !== undefined
+			? { rejectReason: result.rejectReason }
+			: {}),
+		...(capturedPortion === undefined ? {} : { capturedPortion }),
+	};
 	return c.json(
-		wrapResponse({
-			messageId,
-			outcome: result.outcome,
-			...(result.rejectReason !== undefined
-				? { rejectReason: result.rejectReason }
-				: {}),
-		})
+		wrapResponse(
+			capturedPortion === undefined
+				? responseResult
+				: zEmailResendResult.parse(responseResult)
+		)
+	);
+}
+
+async function addCapturedPortionWarning(
+	response: Response,
+	capturedPortion: boolean
+): Promise<Response> {
+	if (!capturedPortion) {
+		return response;
+	}
+	const body = await response.json<Record<string, unknown>>();
+	const messages = Array.isArray(body.messages) ? body.messages : [];
+	return Response.json(
+		{
+			...body,
+			messages: [
+				...messages,
+				{
+					code: EMAIL_WARNING_CAPTURE_TRUNCATED,
+					message: EMAIL_CAPTURED_PORTION_WARNING,
+				},
+			],
+		},
+		{ status: response.status, headers: response.headers }
+	);
+}
+
+async function proxyWorkerScopedEmailOperation(
+	c: AppContext,
+	path: string,
+	worker: string,
+	messageId: string,
+	method: "GET" | "POST"
+): Promise<Response | undefined> {
+	if (isLocalWorker(c, worker)) {
+		return undefined;
+	}
+	const ownerLookup = await findWorkerOwner(
+		c,
+		await getPeerUrlsIfAggregating(c),
+		worker
+	);
+	if (ownerLookup.owner !== null) {
+		const query = new URLSearchParams({ worker, message_id: messageId });
+		return (
+			(await fetchFromPeer(ownerLookup.owner, `${path}?${query}`, {
+				method,
+			})) ?? peerUnavailableResponse(worker)
+		);
+	}
+	return ownerLookup.unavailable
+		? peerUnavailableResponse(worker)
+		: workerUnavailableResponse(worker);
+}
+
+async function findLocalReceivedEmail(
+	c: AppContext,
+	worker: string,
+	messageId: string
+): Promise<StoredRoutingEmail | undefined> {
+	using email = (await getEmailStore(c).findReceived(
+		messageIdToStorageId(messageId),
+		worker
+	)) as (StoredRoutingEmail & Disposable) | undefined;
+	return email === undefined ? undefined : structuredClone(email);
+}
+
+function receivedEmailNotFoundResponse(messageId: string): Response {
+	return errorResponse(
+		404,
+		EMAIL_ERROR_NOT_FOUND,
+		`Email '${messageId}' not found.`
+	);
+}
+
+/** Replays a captured received email on the Worker that originally received it. */
+export async function resendReceivedEmail(
+	c: AppContext,
+	worker: string,
+	messageId: string
+): Promise<Response> {
+	const proxied = await proxyWorkerScopedEmailOperation(
+		c,
+		"/local/email/routing/resend",
+		worker,
+		messageId,
+		"POST"
+	);
+	if (proxied !== undefined) {
+		return proxied;
+	}
+	const source = await findLocalReceivedEmail(c, worker, messageId);
+	if (source === undefined) {
+		return receivedEmailNotFoundResponse(messageId);
+	}
+	const capturedPortion =
+		source.captureTruncated === true || source.incompleteSource === true;
+	const newMessageId = synthesizeMessageId(source.from);
+	let mime: Uint8Array;
+	try {
+		mime = setMessageIdHeader(
+			base64ToBytes(source.rawBase64 ?? ""),
+			newMessageId
+		);
+	} catch (error) {
+		return addCapturedPortionWarning(
+			mimeParseErrorResponse(error),
+			capturedPortion
+		);
+	}
+	const response = await deliverPreparedTestEmail(c, {
+		from: source.from,
+		to: source.to,
+		id: messageIdToStorageId(newMessageId),
+		mime,
+		captureContext: {
+			...(source.origin === undefined ? {} : { origin: source.origin }),
+			...(capturedPortion ? { incompleteSource: true } : {}),
+		},
+		worker,
+		messageId: newMessageId,
+		capturedPortion,
+	});
+	return addCapturedPortionWarning(response, capturedPortion);
+}
+
+function formatParsedAddresses(
+	addresses:
+		| Array<{
+				address?: string;
+				name?: string;
+				group?: Array<{ address?: string; name?: string }>;
+		  }>
+		| undefined
+): string[] {
+	return (addresses ?? []).flatMap((address) =>
+		address.group === undefined
+			? [formatParsedAddress(address)]
+			: address.group.map(formatParsedAddress)
+	);
+}
+
+function attachmentContentToBase64(content: string | ArrayBuffer): string {
+	return typeof content === "string"
+		? bytesToBase64(new TextEncoder().encode(content))
+		: bytesToBase64(new Uint8Array(content));
+}
+
+function projectComposerDraft(
+	source: StoredRoutingEmail,
+	parsed: Awaited<ReturnType<typeof PostalMime.parse>> | undefined
+): EmailComposerDraft {
+	if (parsed === undefined) {
+		const headerEntries =
+			source.headerEntries ?? Object.entries(source.headers ?? {});
+		function getHeader(name: string): string | undefined {
+			return headerEntries.find(
+				([headerName]) => headerName.toLowerCase() === name
+			)?.[1];
+		}
+		const to = addressParser(getHeader("to") ?? "", { flatten: true })
+			.map(formatParsedAddress)
+			.filter(Boolean);
+		const cc = addressParser(getHeader("cc") ?? "", { flatten: true })
+			.map(formatParsedAddress)
+			.filter(Boolean);
+		const customHeaders = Object.fromEntries(
+			headerEntries.filter(
+				([headerName]) => !isManagedEmailHeaderName(headerName)
+			)
+		);
+		return {
+			from: getHeader("from") ?? source.from,
+			to: to.length === 0 ? [source.to] : to,
+			...(cc.length === 0 ? {} : { cc }),
+			...(getHeader("reply-to") === undefined
+				? {}
+				: { replyTo: getHeader("reply-to") }),
+			subject: source.subject,
+			...(Object.keys(customHeaders).length === 0
+				? {}
+				: { headers: customHeaders }),
+		};
+	}
+	const to = formatParsedAddresses(parsed.to).filter(Boolean);
+	const cc = formatParsedAddresses(parsed.cc).filter(Boolean);
+	const replyTo = formatParsedAddresses(parsed.replyTo)
+		.filter(Boolean)
+		.join(", ");
+	const headers = Object.fromEntries(
+		parsed.headers
+			.filter(({ key }) => !isManagedEmailHeaderName(key))
+			.map(({ key, value }) => [key, value])
+	);
+	return {
+		from: formatParsedAddress(parsed.from) || source.from,
+		to: to.length === 0 ? [source.to] : to,
+		...(cc.length === 0 ? {} : { cc }),
+		...(replyTo === "" ? {} : { replyTo }),
+		subject: parsed.subject ?? source.subject,
+		...(Object.keys(headers).length === 0 ? {} : { headers }),
+		...(parsed.text === undefined ? {} : { text: parsed.text }),
+		...(parsed.html === undefined ? {} : { html: parsed.html }),
+		...(parsed.attachments.length === 0
+			? {}
+			: {
+					attachments: parsed.attachments.map((attachment, index) => ({
+						filename: attachment.filename ?? `attachment-${index + 1}`,
+						type: attachment.mimeType,
+						content: attachmentContentToBase64(attachment.content),
+						...(attachment.contentId === undefined
+							? {}
+							: { contentId: attachment.contentId }),
+						...(attachment.disposition === null
+							? {}
+							: { disposition: attachment.disposition }),
+					})),
+				}),
+	};
+}
+
+/** Projects a composer-originated capture back into structured composer fields. */
+export async function getReceivedEmailResendDraft(
+	c: AppContext,
+	worker: string,
+	messageId: string
+): Promise<Response> {
+	const proxied = await proxyWorkerScopedEmailOperation(
+		c,
+		"/local/email/routing/resend/draft",
+		worker,
+		messageId,
+		"GET"
+	);
+	if (proxied !== undefined) {
+		return proxied;
+	}
+	const source = await findLocalReceivedEmail(c, worker, messageId);
+	if (source === undefined) {
+		return receivedEmailNotFoundResponse(messageId);
+	}
+	const capturedPortion =
+		source.captureTruncated === true || source.incompleteSource === true;
+	if (source.origin !== "composer") {
+		return addCapturedPortionWarning(
+			errorResponse(
+				400,
+				EMAIL_ERROR_SEND_FAILED,
+				source.origin === "eml"
+					? EMAIL_EDIT_EML_UNAVAILABLE_REASON
+					: EMAIL_EDIT_UNKNOWN_UNAVAILABLE_REASON
+			),
+			capturedPortion
+		);
+	}
+	let parsed: Awaited<ReturnType<typeof PostalMime.parse>> | undefined;
+	try {
+		parsed = await PostalMime.parse(base64ToBytes(source.rawBase64 ?? ""));
+	} catch (error) {
+		if (!capturedPortion) {
+			return mimeParseErrorResponse(error);
+		}
+	}
+	const result = zEmailResendDraft.parse({
+		draft: projectComposerDraft(source, parsed),
+		capturedPortion,
+	});
+	return addCapturedPortionWarning(
+		c.json(wrapResponse(result)),
+		capturedPortion
 	);
 }
 

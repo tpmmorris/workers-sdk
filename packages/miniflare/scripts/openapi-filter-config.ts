@@ -739,6 +739,13 @@ const config = {
 							description:
 								"Deliver the test email directly to this worker's email() handler. Required because a single dev port can serve multiple workers, so the target cannot be inferred from the recipient address.",
 						},
+						{
+							in: "query",
+							name: "incomplete_source",
+							schema: { type: "boolean" },
+							description:
+								"Marks a structured send as derived from an incomplete captured portion so that lineage is retained.",
+						},
 					],
 					requestBody: {
 						required: true,
@@ -820,6 +827,140 @@ const config = {
 						},
 					},
 					summary: "Send Test Email",
+					tags: ["Email"],
+				},
+			},
+			"/local/email/routing/resend": {
+				post: {
+					description:
+						"Replays the newest captured received email matching a Worker and RFC Message-ID.",
+					operationId: "email-resend-routing",
+					parameters: [
+						{
+							in: "query",
+							name: "worker",
+							required: true,
+							schema: { type: "string" },
+						},
+						{
+							in: "query",
+							name: "message_id",
+							required: true,
+							schema: { type: "string" },
+						},
+					],
+					responses: {
+						"200": {
+							content: {
+								"application/json": {
+									schema: {
+										allOf: [
+											{
+												$ref: "#/components/schemas/workers_api-response-common",
+											},
+											{
+												type: "object",
+												properties: {
+													result: {
+														$ref: "#/components/schemas/email_resend-result",
+													},
+												},
+											},
+										],
+									},
+								},
+							},
+							description: "Resend captured email response.",
+						},
+						"4XX": {
+							content: {
+								"application/json": {
+									schema: {
+										$ref: "#/components/schemas/workers_api-response-common-failure",
+									},
+								},
+							},
+							description: "Resend captured email failure.",
+						},
+						"502": {
+							content: {
+								"application/json": {
+									schema: {
+										$ref: "#/components/schemas/workers_api-response-common-failure",
+									},
+								},
+							},
+							description: "The Worker-owning peer is unavailable.",
+						},
+					},
+					summary: "Resend Received Email",
+					tags: ["Email"],
+				},
+			},
+			"/local/email/routing/resend/draft": {
+				get: {
+					description:
+						"Projects a composer-originated capture back into structured composer fields.",
+					operationId: "email-resend-draft-routing",
+					parameters: [
+						{
+							in: "query",
+							name: "worker",
+							required: true,
+							schema: { type: "string" },
+						},
+						{
+							in: "query",
+							name: "message_id",
+							required: true,
+							schema: { type: "string" },
+						},
+					],
+					responses: {
+						"200": {
+							content: {
+								"application/json": {
+									schema: {
+										allOf: [
+											{
+												$ref: "#/components/schemas/workers_api-response-common",
+											},
+											{
+												type: "object",
+												properties: {
+													result: {
+														$ref: "#/components/schemas/email_resend-draft",
+													},
+												},
+											},
+										],
+									},
+								},
+							},
+							description: "Composer projection response.",
+						},
+						"4XX": {
+							content: {
+								"application/json": {
+									schema: {
+										$ref: "#/components/schemas/workers_api-response-common-failure",
+									},
+								},
+							},
+							description: "Composer projection failure.",
+						},
+						"502": {
+							content: {
+								"application/json": {
+									schema: {
+										$ref: "#/components/schemas/workers_api-response-common-failure",
+									},
+								},
+							},
+							description: "The Worker-owning peer is unavailable.",
+						},
+					},
+					summary: "Get Received Email Resend Draft",
 					tags: ["Email"],
 				},
 			},

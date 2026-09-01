@@ -154,6 +154,8 @@ const zStoredEmailReplyMetadata = zStoredEmailReply.extend({
 });
 export const zStoredRoutingEmailSummary = zEmailBase.extend({
 	origin: zEmailCaptureOrigin.optional(),
+	captureTruncated: z.boolean().optional(),
+	incompleteSource: z.boolean().optional(),
 	to: z.string(),
 	cc: z.array(z.string()).optional(),
 	headers: z.record(z.string(), z.string()).optional(),
@@ -167,7 +169,6 @@ export const zStoredRoutingEmailSummary = zEmailBase.extend({
 	events: z.array(zEmailHandlerEvent),
 });
 const zStoredRoutingEmailMetadata = zStoredRoutingEmailSummary.extend({
-	captureTruncated: z.boolean().optional(),
 	replies: z.array(zStoredEmailReplyMetadata),
 });
 export const zStoredRoutingEmail = zStoredRoutingEmailMetadata.extend({

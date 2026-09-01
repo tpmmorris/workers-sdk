@@ -903,6 +903,18 @@ export type EmailRoutingItem = {
 	forwards: Array<EmailHandlerForward>;
 	replies: Array<EmailHandlerReply>;
 	events: Array<EmailHandlerEvent>;
+	/**
+	 * Whether this capture can be projected into the email composer.
+	 */
+	editAndResendAvailable: boolean;
+	/**
+	 * Why this capture cannot be edited and resent.
+	 */
+	editAndResendUnavailableReason?: string;
+	/**
+	 * Whether only an incomplete captured portion remains available.
+	 */
+	capturedPortion: boolean;
 };
 
 export type EmailRoutingDetail = {
@@ -948,6 +960,18 @@ export type EmailRoutingDetail = {
 	forwards: Array<EmailHandlerForward>;
 	replies: Array<EmailHandlerReply>;
 	events: Array<EmailHandlerEvent>;
+	/**
+	 * Whether this capture can be projected into the email composer.
+	 */
+	editAndResendAvailable: boolean;
+	/**
+	 * Why this capture cannot be edited and resent.
+	 */
+	editAndResendUnavailableReason?: string;
+	/**
+	 * Whether only an incomplete captured portion remains available.
+	 */
+	capturedPortion: boolean;
 	/**
 	 * Parsed plain text body, when present.
 	 */
@@ -1021,6 +1045,71 @@ export type EmailSendRequest = {
 		 */
 		disposition?: "inline" | "attachment";
 	}>;
+};
+
+export type EmailComposerDraft = {
+	/**
+	 * Sender address.
+	 */
+	from: string;
+	/**
+	 * Recipient addresses.
+	 */
+	to: Array<string>;
+	cc?: Array<string>;
+	replyTo?: string;
+	subject: string;
+	/**
+	 * Plain text body.
+	 */
+	text?: string;
+	/**
+	 * HTML body.
+	 */
+	html?: string;
+	/**
+	 * Custom headers to include on the message.
+	 */
+	headers?: {
+		[key: string]: string;
+	};
+	/**
+	 * Attachments to include on the message, mirroring the MessageBuilder `attachments` entries accepted by a send_email binding. Adding any attachment composes the message as multipart/mixed.
+	 */
+	attachments?: Array<{
+		/**
+		 * Name the attachment is presented under.
+		 */
+		filename: string;
+		/**
+		 * MIME type of the attachment, e.g. 'application/pdf'.
+		 */
+		type: string;
+		/**
+		 * Attachment content, base64-encoded. MessageBuilder takes raw bytes here, but this endpoint accepts JSON so the bytes must be base64-encoded.
+		 */
+		content: string;
+		/**
+		 * Content-ID for an inline attachment.
+		 */
+		contentId?: string;
+		/**
+		 * How the attachment is presented. Defaults to 'attachment'.
+		 */
+		disposition?: "inline" | "attachment";
+	}>;
+};
+
+export type EmailResendDraft = {
+	draft: EmailComposerDraft;
+	capturedPortion: boolean;
+};
+
+export type EmailResendResult = {
+	messageId: string;
+	outcome: "ok" | "exception";
+	rejectReason?: string;
+	capturedPortion: boolean;
 };
 
 /**
@@ -1847,6 +1936,10 @@ export type EmailSendRoutingData = {
 		 * Deliver the test email directly to this worker's email() handler. Required because a single dev port can serve multiple workers, so the target cannot be inferred from the recipient address.
 		 */
 		worker: string;
+		/**
+		 * Marks a structured send as derived from an incomplete captured portion so that lineage is retained.
+		 */
+		incomplete_source?: boolean;
 	};
 	url: "/local/email/routing/send";
 };
@@ -1889,6 +1982,78 @@ export type EmailSendRoutingResponses = {
 
 export type EmailSendRoutingResponse =
 	EmailSendRoutingResponses[keyof EmailSendRoutingResponses];
+
+export type EmailResendRoutingData = {
+	body?: never;
+	path?: never;
+	query: {
+		worker: string;
+		message_id: string;
+	};
+	url: "/local/email/routing/resend";
+};
+
+export type EmailResendRoutingErrors = {
+	/**
+	 * The Worker-owning peer is unavailable.
+	 */
+	502: WorkersApiResponseCommonFailure;
+	/**
+	 * Resend captured email failure.
+	 */
+	"4XX": WorkersApiResponseCommonFailure;
+};
+
+export type EmailResendRoutingError =
+	EmailResendRoutingErrors[keyof EmailResendRoutingErrors];
+
+export type EmailResendRoutingResponses = {
+	/**
+	 * Resend captured email response.
+	 */
+	200: WorkersApiResponseCommon & {
+		result?: EmailResendResult;
+	};
+};
+
+export type EmailResendRoutingResponse =
+	EmailResendRoutingResponses[keyof EmailResendRoutingResponses];
+
+export type EmailResendDraftRoutingData = {
+	body?: never;
+	path?: never;
+	query: {
+		worker: string;
+		message_id: string;
+	};
+	url: "/local/email/routing/resend/draft";
+};
+
+export type EmailResendDraftRoutingErrors = {
+	/**
+	 * The Worker-owning peer is unavailable.
+	 */
+	502: WorkersApiResponseCommonFailure;
+	/**
+	 * Composer projection failure.
+	 */
+	"4XX": WorkersApiResponseCommonFailure;
+};
+
+export type EmailResendDraftRoutingError =
+	EmailResendDraftRoutingErrors[keyof EmailResendDraftRoutingErrors];
+
+export type EmailResendDraftRoutingResponses = {
+	/**
+	 * Composer projection response.
+	 */
+	200: WorkersApiResponseCommon & {
+		result?: EmailResendDraft;
+	};
+};
+
+export type EmailResendDraftRoutingResponse =
+	EmailResendDraftRoutingResponses[keyof EmailResendDraftRoutingResponses];
 
 export type EmailListSendingData = {
 	body?: never;

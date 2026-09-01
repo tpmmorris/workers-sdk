@@ -4,25 +4,26 @@ import { AddressFields } from "./AddressFields";
 import { AttachmentsSection } from "./AttachmentsSection";
 import { BodyFields } from "./BodyFields";
 import { CustomHeadersSection } from "./CustomHeadersSection";
+import { IncompleteSourceWarning } from "./IncompleteSourceWarning";
 import { RawEmailFileSection } from "./RawEmailFileSection";
 import { useSendTestEmailComposer } from "./useSendTestEmailComposer";
 import type { TestEmailDraft } from "./types";
 
 export interface SendTestEmailDialogProps {
+	incompleteSource?: boolean;
 	initialDraft?: TestEmailDraft;
 	onOpenChange: (open: boolean) => void;
 	onSendSuccess: () => void;
-	onStructuredSent: (draft: TestEmailDraft) => void;
 	open: boolean;
 	worker?: string;
 }
 
 /** Renders the mounted shell for structured test-email composition. */
 export function SendTestEmailDialog({
+	incompleteSource = false,
 	initialDraft,
 	onOpenChange,
 	onSendSuccess,
-	onStructuredSent,
 	open,
 	worker,
 }: SendTestEmailDialogProps): JSX.Element {
@@ -34,11 +35,11 @@ export function SendTestEmailDialog({
 		[toast]
 	);
 	const composer = useSendTestEmailComposer({
+		incompleteSource,
 		initialDraft,
 		onError,
 		onOpenChange,
 		onSendSuccess,
-		onStructuredSent,
 		open,
 		worker,
 	});
@@ -70,6 +71,7 @@ export function SendTestEmailDialog({
 					}}
 				>
 					<div className="max-h-[60vh] min-w-0 space-y-4 overflow-y-auto px-6 py-5">
+						{incompleteSource && <IncompleteSourceWarning />}
 						<RawEmailFileSection
 							error={state.rawFileError}
 							file={state.rawFile}
@@ -85,7 +87,6 @@ export function SendTestEmailDialog({
 									}}
 									onChange={composer.fields.change}
 									values={{
-										bcc: state.bcc,
 										cc: state.cc,
 										from: state.from,
 										replyTo: state.replyTo,

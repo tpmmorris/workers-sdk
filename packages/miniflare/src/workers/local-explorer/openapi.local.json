@@ -1401,6 +1401,14 @@
 							"type": "string"
 						},
 						"description": "Deliver the test email directly to this worker's email() handler. Required because a single dev port can serve multiple workers, so the target cannot be inferred from the recipient address."
+					},
+					{
+						"in": "query",
+						"name": "incomplete_source",
+						"schema": {
+							"type": "boolean"
+						},
+						"description": "Marks a structured send as derived from an incomplete captured portion so that lineage is retained."
 					}
 				],
 				"requestBody": {
@@ -1479,6 +1487,146 @@
 					}
 				},
 				"summary": "Send Test Email",
+				"tags": ["Email"]
+			}
+		},
+		"/local/email/routing/resend": {
+			"post": {
+				"description": "Replays the newest captured received email matching a Worker and RFC Message-ID.",
+				"operationId": "email-resend-routing",
+				"parameters": [
+					{
+						"in": "query",
+						"name": "worker",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"in": "query",
+						"name": "message_id",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"content": {
+							"application/json": {
+								"schema": {
+									"allOf": [
+										{
+											"$ref": "#/components/schemas/workers_api-response-common"
+										},
+										{
+											"type": "object",
+											"properties": {
+												"result": {
+													"$ref": "#/components/schemas/email_resend-result"
+												}
+											}
+										}
+									]
+								}
+							}
+						},
+						"description": "Resend captured email response."
+					},
+					"502": {
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/workers_api-response-common-failure"
+								}
+							}
+						},
+						"description": "The Worker-owning peer is unavailable."
+					},
+					"4XX": {
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/workers_api-response-common-failure"
+								}
+							}
+						},
+						"description": "Resend captured email failure."
+					}
+				},
+				"summary": "Resend Received Email",
+				"tags": ["Email"]
+			}
+		},
+		"/local/email/routing/resend/draft": {
+			"get": {
+				"description": "Projects a composer-originated capture back into structured composer fields.",
+				"operationId": "email-resend-draft-routing",
+				"parameters": [
+					{
+						"in": "query",
+						"name": "worker",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"in": "query",
+						"name": "message_id",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"content": {
+							"application/json": {
+								"schema": {
+									"allOf": [
+										{
+											"$ref": "#/components/schemas/workers_api-response-common"
+										},
+										{
+											"type": "object",
+											"properties": {
+												"result": {
+													"$ref": "#/components/schemas/email_resend-draft"
+												}
+											}
+										}
+									]
+								}
+							}
+						},
+						"description": "Composer projection response."
+					},
+					"502": {
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/workers_api-response-common-failure"
+								}
+							}
+						},
+						"description": "The Worker-owning peer is unavailable."
+					},
+					"4XX": {
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/workers_api-response-common-failure"
+								}
+							}
+						},
+						"description": "Composer projection failure."
+					}
+				},
+				"summary": "Get Received Email Resend Draft",
 				"tags": ["Email"]
 			}
 		},
@@ -4066,6 +4214,18 @@
 						"items": {
 							"$ref": "#/components/schemas/email_handler-event"
 						}
+					},
+					"editAndResendAvailable": {
+						"type": "boolean",
+						"description": "Whether this capture can be projected into the email composer."
+					},
+					"editAndResendUnavailableReason": {
+						"type": "string",
+						"description": "Why this capture cannot be edited and resent."
+					},
+					"capturedPortion": {
+						"type": "boolean",
+						"description": "Whether only an incomplete captured portion remains available."
 					}
 				},
 				"required": [
@@ -4079,7 +4239,9 @@
 					"outcome",
 					"forwards",
 					"replies",
-					"events"
+					"events",
+					"editAndResendAvailable",
+					"capturedPortion"
 				],
 				"additionalProperties": false
 			},
@@ -4176,6 +4338,18 @@
 							"$ref": "#/components/schemas/email_handler-event"
 						}
 					},
+					"editAndResendAvailable": {
+						"type": "boolean",
+						"description": "Whether this capture can be projected into the email composer."
+					},
+					"editAndResendUnavailableReason": {
+						"type": "string",
+						"description": "Why this capture cannot be edited and resent."
+					},
+					"capturedPortion": {
+						"type": "boolean",
+						"description": "Whether only an incomplete captured portion remains available."
+					},
 					"text": {
 						"type": "string",
 						"description": "Parsed plain text body, when present."
@@ -4205,6 +4379,8 @@
 					"forwards",
 					"replies",
 					"events",
+					"editAndResendAvailable",
+					"capturedPortion",
 					"raw"
 				],
 				"additionalProperties": false
@@ -4293,6 +4469,117 @@
 				"required": ["from", "to", "subject"],
 				"additionalProperties": false,
 				"description": "Fields for composing a test email, mirroring MessageBuilder."
+			},
+			"email_composer-draft": {
+				"type": "object",
+				"properties": {
+					"from": {
+						"type": "string",
+						"description": "Sender address."
+					},
+					"to": {
+						"minItems": 1,
+						"type": "array",
+						"items": {
+							"type": "string"
+						},
+						"description": "Recipient addresses."
+					},
+					"cc": {
+						"type": "array",
+						"items": {
+							"type": "string"
+						}
+					},
+					"replyTo": {
+						"type": "string"
+					},
+					"subject": {
+						"type": "string"
+					},
+					"text": {
+						"type": "string",
+						"description": "Plain text body."
+					},
+					"html": {
+						"type": "string",
+						"description": "HTML body."
+					},
+					"headers": {
+						"type": "object",
+						"additionalProperties": {
+							"type": "string"
+						},
+						"description": "Custom headers to include on the message."
+					},
+					"attachments": {
+						"type": "array",
+						"items": {
+							"type": "object",
+							"properties": {
+								"filename": {
+									"type": "string",
+									"description": "Name the attachment is presented under."
+								},
+								"type": {
+									"type": "string",
+									"description": "MIME type of the attachment, e.g. 'application/pdf'."
+								},
+								"content": {
+									"type": "string",
+									"description": "Attachment content, base64-encoded. MessageBuilder takes raw bytes here, but this endpoint accepts JSON so the bytes must be base64-encoded."
+								},
+								"contentId": {
+									"type": "string",
+									"description": "Content-ID for an inline attachment."
+								},
+								"disposition": {
+									"type": "string",
+									"enum": ["inline", "attachment"],
+									"description": "How the attachment is presented. Defaults to 'attachment'."
+								}
+							},
+							"required": ["filename", "type", "content"],
+							"additionalProperties": false
+						},
+						"description": "Attachments to include on the message, mirroring the MessageBuilder `attachments` entries accepted by a send_email binding. Adding any attachment composes the message as multipart/mixed."
+					}
+				},
+				"required": ["from", "to", "subject"],
+				"additionalProperties": false
+			},
+			"email_resend-draft": {
+				"type": "object",
+				"properties": {
+					"draft": {
+						"$ref": "#/components/schemas/email_composer-draft"
+					},
+					"capturedPortion": {
+						"type": "boolean"
+					}
+				},
+				"required": ["draft", "capturedPortion"],
+				"additionalProperties": false
+			},
+			"email_resend-result": {
+				"type": "object",
+				"properties": {
+					"messageId": {
+						"type": "string"
+					},
+					"outcome": {
+						"type": "string",
+						"enum": ["ok", "exception"]
+					},
+					"rejectReason": {
+						"type": "string"
+					},
+					"capturedPortion": {
+						"type": "boolean"
+					}
+				},
+				"required": ["messageId", "outcome", "capturedPortion"],
+				"additionalProperties": false
 			},
 			"email_attachment": {
 				"type": "object",

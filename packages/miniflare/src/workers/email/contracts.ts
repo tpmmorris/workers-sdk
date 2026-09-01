@@ -4,6 +4,11 @@ export const zEmailCaptureOrigin = z.enum(["composer", "eml"]);
 
 export type EmailCaptureOrigin = z.infer<typeof zEmailCaptureOrigin>;
 
+export interface EmailCaptureContext {
+	origin?: EmailCaptureOrigin;
+	incompleteSource?: boolean;
+}
+
 export type EmailHandlerEvent =
 	| {
 			type: "received" | "reject" | "unhandled";
@@ -166,6 +171,16 @@ export const zEmailRoutingItem = zEmailBase.extend({
 	forwards: z.array(zEmailHandlerForward),
 	replies: z.array(zEmailHandlerReplyApi),
 	events: z.array(zEmailHandlerEvent),
+	editAndResendAvailable: z
+		.boolean()
+		.describe("Whether this capture can be projected into the email composer."),
+	editAndResendUnavailableReason: z
+		.string()
+		.describe("Why this capture cannot be edited and resent.")
+		.optional(),
+	capturedPortion: z
+		.boolean()
+		.describe("Whether only an incomplete captured portion remains available."),
 });
 
 export type EmailRoutingItem = z.infer<typeof zEmailRoutingItem>;
@@ -226,6 +241,26 @@ export const zEmailSendRequest = z
 	.describe("Fields for composing a test email, mirroring MessageBuilder.");
 
 export type EmailSendRequest = z.infer<typeof zEmailSendRequest>;
+
+export const zEmailComposerDraft = zEmailSendRequest.omit({ bcc: true });
+
+export type EmailComposerDraft = z.infer<typeof zEmailComposerDraft>;
+
+export const zEmailResendResult = z.object({
+	messageId: z.string(),
+	outcome: z.enum(["ok", "exception"]),
+	rejectReason: z.string().optional(),
+	capturedPortion: z.boolean(),
+});
+
+export type EmailResendResult = z.infer<typeof zEmailResendResult>;
+
+export const zEmailResendDraft = z.object({
+	draft: zEmailComposerDraft,
+	capturedPortion: z.boolean(),
+});
+
+export type EmailResendDraft = z.infer<typeof zEmailResendDraft>;
 
 export const zEmailSendingItem = zEmailBase.extend({
 	to: z.array(z.string()),

@@ -6,6 +6,10 @@ export const EMAIL_ROUTING_DETAIL_ROUTE =
 	"**/cdn-cgi/local/explorer/api/local/email/routing?*";
 export const EMAIL_ROUTING_SEND_ROUTE =
 	"**/cdn-cgi/local/explorer/api/local/email/routing/send?*";
+export const EMAIL_ROUTING_RESEND_ROUTE =
+	"**/cdn-cgi/local/explorer/api/local/email/routing/resend?*";
+export const EMAIL_ROUTING_RESEND_DRAFT_ROUTE =
+	"**/cdn-cgi/local/explorer/api/local/email/routing/resend/draft?*";
 export const EMAIL_SENDING_ROUTE =
 	"**/cdn-cgi/local/explorer/api/local/email/sending?*";
 export const EMAIL_PREVIEW_REMOTE_ROUTE = "https://email-preview.invalid/**";
@@ -20,6 +24,9 @@ interface MockSentEmailOptions {
 }
 
 interface MockRoutingEmailOptions {
+	capturedPortion?: boolean;
+	editAndResendAvailable?: boolean;
+	editAndResendUnavailableReason?: string;
 	handlerException?: boolean;
 	showInList?: boolean;
 	replyTruncated?: boolean;
@@ -94,6 +101,14 @@ export async function mockEmailRoutingDetail(
 			: [];
 		const summary = {
 			attachments: [],
+			capturedPortion: options.capturedPortion ?? false,
+			editAndResendAvailable: options.editAndResendAvailable ?? true,
+			...(options.editAndResendUnavailableReason
+				? {
+						editAndResendUnavailableReason:
+							options.editAndResendUnavailableReason,
+					}
+				: {}),
 			events: options.handlerException
 				? [
 						{
@@ -111,6 +126,7 @@ export async function mockEmailRoutingDetail(
 			replies: [],
 			subject: "Test email",
 			to: "recipient@example.com",
+			worker: "worker-1",
 		};
 		const result = emailId
 			? {
@@ -233,6 +249,8 @@ export async function cleanupEmailMocks(): Promise<void> {
 		page.unroute(WORKERS_ROUTE),
 		page.unroute(EMAIL_ROUTING_DETAIL_ROUTE),
 		page.unroute(EMAIL_ROUTING_SEND_ROUTE),
+		page.unroute(EMAIL_ROUTING_RESEND_ROUTE),
+		page.unroute(EMAIL_ROUTING_RESEND_DRAFT_ROUTE),
 		page.unroute(EMAIL_SENDING_ROUTE),
 		page.unroute(EMAIL_PREVIEW_REMOTE_ROUTE),
 	]);

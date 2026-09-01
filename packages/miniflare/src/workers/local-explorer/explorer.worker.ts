@@ -14,6 +14,8 @@ import {
 	zDurableObjectsNamespaceQuerySqliteData,
 	zEmailListRoutingData,
 	zEmailListSendingData,
+	zEmailResendDraftRoutingData,
+	zEmailResendRoutingData,
 	zEmailSendRoutingData,
 	zR2BucketDeleteObjectsData,
 	zR2BucketListObjectsData,
@@ -30,9 +32,11 @@ import { listD1Databases, rawD1Database } from "./resources/d1";
 import { listDONamespaces, listDOObjects, queryDOSqlite } from "./resources/do";
 import {
 	getReceivedEmail,
+	getReceivedEmailResendDraft,
 	getSentEmail,
 	listReceivedEmails,
 	listSentEmails,
+	resendReceivedEmail,
 	sendTestEmail,
 } from "./resources/email";
 import {
@@ -410,7 +414,28 @@ app.get(
 app.post(
 	"/api/local/email/routing/send",
 	validateQuery(zEmailSendRoutingData.shape.query),
-	(c) => sendTestEmail(c, c.req.valid("query").worker)
+	(c) => {
+		const query = c.req.valid("query");
+		return sendTestEmail(c, query.worker, query.incomplete_source);
+	}
+);
+
+app.post(
+	"/api/local/email/routing/resend",
+	validateQuery(zEmailResendRoutingData.shape.query),
+	(c) => {
+		const query = c.req.valid("query");
+		return resendReceivedEmail(c, query.worker, query.message_id);
+	}
+);
+
+app.get(
+	"/api/local/email/routing/resend/draft",
+	validateQuery(zEmailResendDraftRoutingData.shape.query),
+	(c) => {
+		const query = c.req.valid("query");
+		return getReceivedEmailResendDraft(c, query.worker, query.message_id);
+	}
 );
 
 app.get(

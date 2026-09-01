@@ -3,6 +3,8 @@ import { page, viteUrl } from "../utils";
 import {
 	cleanupEmailMocks,
 	EMAIL_ROUTING_DETAIL_ROUTE,
+	EMAIL_ROUTING_RESEND_DRAFT_ROUTE,
+	EMAIL_ROUTING_RESEND_ROUTE,
 	EMAIL_ROUTING_SEND_ROUTE,
 	fulfillApiResult,
 	loadWorker,
@@ -72,8 +74,12 @@ describe("email routing", () => {
 			releaseSend = resolve;
 		});
 		let sentBody: unknown;
+		let incompleteSource: string | null = null;
 		await page.route(EMAIL_ROUTING_SEND_ROUTE, async (route) => {
 			sentBody = route.request().postDataJSON();
+			incompleteSource = new URL(route.request().url()).searchParams.get(
+				"incomplete_source"
+			);
 			await sendReleased;
 			await fulfillApiResult(route, {
 				messageId: "<sent@example.com>",
@@ -119,15 +125,13 @@ describe("email routing", () => {
 					},
 				],
 			});
+		expect(incompleteSource).toBeNull();
 		releaseSend?.();
 		await expect
 			.poll(() =>
 				page.getByRole("heading", { name: "Send test email" }).count()
 			)
 			.toBe(0);
-		await page.getByRole("button", { name: "Edit and resend" }).click();
-		await page.getByText("example.txt").waitFor();
-		expect(await page.getByText("text/plain · 15 B").count()).toBe(1);
 	});
 
 	test("closes and refreshes when an email is captured without a handler", async ({
@@ -431,7 +435,6 @@ describe("email routing", () => {
 			).toString()
 		);
 		const initialListRequests = listRequests;
-		const editAndResend = page.getByRole("button", { name: "Edit and resend" });
 		await page.getByRole("button", { name: "Send Test Email" }).click();
 		await page.getByLabel("Upload .eml file").setInputFiles({
 			buffer: Buffer.from(
@@ -470,7 +473,6 @@ describe("email routing", () => {
 			)
 			.toBe(0);
 		await expect.poll(() => listRequests).toBeGreaterThan(initialListRequests);
-		expect(await editAndResend.isDisabled()).toBe(true);
 		page.off("request", countListRequest);
 	});
 
@@ -624,18 +626,60 @@ describe("email routing", () => {
 		page.off("request", countListRequest);
 	});
 
-	test("edits and resends the last successful email with multiline headers", async ({
+	test("projects a clicked row into the composer without changing navigation", async ({
 		expect,
 	}) => {
-		await mockEmailRoutingDetail(true, { showInList: true });
+		await mockEmailRoutingDetail(false, {
+			capturedPortion: true,
+			showInList: true,
+		});
 		await loadWorker();
-		const sentBodies: Array<Record<string, unknown>> = [];
-		await page.route(EMAIL_ROUTING_SEND_ROUTE, async (route) => {
-			sentBodies.push(
-				route.request().postDataJSON() as Record<string, unknown>
-			);
+		const projectionRequests: Array<{
+			messageId: string | null;
+			worker: string | null;
+		}> = [];
+		let projectedSend:
+			| { body: Record<string, unknown>; incompleteSource: string | null }
+			| undefined;
+		await page.route(EMAIL_ROUTING_RESEND_DRAFT_ROUTE, async (route) => {
+			const search = new URL(route.request().url()).searchParams;
+			projectionRequests.push({
+				messageId: search.get("message_id"),
+				worker: search.get("worker"),
+			});
 			await fulfillApiResult(route, {
-				messageId: `<sent-${sentBodies.length}@example.com>`,
+				capturedPortion: true,
+				draft: {
+					attachments: [
+						{
+							content: Buffer.from("projected attachment").toString("base64"),
+							contentId: "projected-file",
+							disposition: "inline",
+							filename: "projected.txt",
+							type: "text/plain",
+						},
+					],
+					bcc: ["must-not-appear@example.com"],
+					cc: ["cc-one@example.com", "cc-two@example.com"],
+					from: "Projected Sender <sender@example.com>",
+					headers: { "X-Projected": "projected value" },
+					html: "<p>Projected HTML</p>",
+					replyTo: "reply@example.com",
+					subject: "Projected subject",
+					text: "Projected text",
+					to: ["one@example.com", "two@example.com"],
+				},
+			});
+		});
+		await page.route(EMAIL_ROUTING_SEND_ROUTE, async (route) => {
+			projectedSend = {
+				body: route.request().postDataJSON() as Record<string, unknown>,
+				incompleteSource: new URL(route.request().url()).searchParams.get(
+					"incomplete_source"
+				),
+			};
+			await fulfillApiResult(route, {
+				messageId: "<edited-partial@example.com>",
 				outcome: "ok",
 			});
 		});
@@ -646,81 +690,213 @@ describe("email routing", () => {
 			).toString()
 		);
 
-		const editAndResendButton = page.getByRole("button", {
-			name: "Edit and resend",
-		});
-		await editAndResendButton.waitFor();
-		expect(await editAndResendButton.isDisabled()).toBe(true);
-		await page.getByRole("button", { name: "Send Test Email" }).click();
-		await page.locator("#test-email-from").fill("sender@example.com");
-		await page.locator("#test-email-to").fill("recipient@example.com");
-		await page.getByLabel("Subject").fill("Original subject");
-		await page.getByLabel("Text body").fill("Original body");
-		await page.getByRole("button", { name: "Add header" }).click();
-		const headerNameInput = page.getByLabel("Header 1 name");
-		const headerValueInput = page.getByLabel("Header 1 value");
-		await expect.poll(() => headerNameInput.isEditable()).toBe(true);
-		await expect.poll(() => headerValueInput.isEditable()).toBe(true);
-		await headerNameInput.fill("X-Multiline");
-		await headerValueInput.fill("first line\nsecond line");
-		expect(await headerNameInput.inputValue()).toBe("X-Multiline");
-		expect(await headerValueInput.inputValue()).toBe("first line\nsecond line");
-		await page.getByRole("button", { name: "Add header" }).click();
-		await page.getByLabel("Header 2 name").fill("__proto__");
-		await page.getByLabel("Header 2 value").fill("prototype-safe value");
-		await page.getByRole("button", { name: "Send Email" }).click();
-
-		await expect.poll(() => editAndResendButton.isEnabled()).toBe(true);
-		expect(sentBodies[0]).toMatchObject({
-			from: "sender@example.com",
-			subject: "Original subject",
-			text: "Original body",
-			to: ["recipient@example.com"],
-		});
-		expect(sentBodies[0]?.headers).toEqual(
-			Object.fromEntries([
-				["X-Multiline", "first line\nsecond line"],
-				["__proto__", "prototype-safe value"],
-			])
+		const editButton = page.getByRole("button", { name: "Edit and resend" });
+		await editButton.waitFor();
+		expect(await editButton.count()).toBe(1);
+		expect(
+			await page.getByRole("button", { name: "Resend", exact: true }).count()
+		).toBe(1);
+		await editButton.click();
+		await page.getByRole("heading", { name: "Send test email" }).waitFor();
+		expect(new URL(page.url()).pathname).toMatch(/\/email\/routing$/);
+		expect(projectionRequests).toEqual([
+			{ messageId: "<test-email-id>", worker: "worker-1" },
+		]);
+		expect(await page.locator("#test-email-from").inputValue()).toBe(
+			"Projected Sender <sender@example.com>"
 		);
-
+		expect(await page.locator("#test-email-to").inputValue()).toBe(
+			"one@example.com, two@example.com"
+		);
+		expect(await page.getByLabel("Cc").inputValue()).toBe(
+			"cc-one@example.com, cc-two@example.com"
+		);
+		expect(await page.getByLabel("Reply-To").inputValue()).toBe(
+			"reply@example.com"
+		);
+		expect(await page.getByLabel("Subject").inputValue()).toBe(
+			"Projected subject"
+		);
+		expect(await page.getByLabel("Text body").inputValue()).toBe(
+			"Projected text"
+		);
+		expect(await page.getByLabel("HTML body").inputValue()).toBe(
+			"<p>Projected HTML</p>"
+		);
+		expect(await page.getByLabel("Header 1 name").inputValue()).toBe(
+			"X-Projected"
+		);
+		expect(await page.getByText("projected.txt").count()).toBe(1);
+		expect(await page.getByText("text/plain · 20 B").count()).toBe(1);
+		expect(await page.getByLabel("Bcc").count()).toBe(0);
+		await page
+			.getByText("Only the captured portion of this email is available.")
+			.waitFor();
+		await page.getByRole("button", { name: "Send Email" }).click();
+		await expect.poll(() => projectedSend).toBeDefined();
+		expect(projectedSend).toMatchObject({
+			body: { subject: "Projected subject" },
+			incompleteSource: "true",
+		});
+		expect(projectedSend?.body).not.toHaveProperty("bcc");
+		await expect
+			.poll(() =>
+				page.getByRole("heading", { name: "Send test email" }).count()
+			)
+			.toBe(0);
 		await page.getByRole("button", { name: /Test email/ }).click();
 		await expect
 			.poll(() => new URL(page.url()).pathname)
 			.toMatch(/\/email\/routing\/[^/]+$/);
-		await page.getByRole("link", { name: "Routing", exact: true }).click();
-		await expect
-			.poll(() => new URL(page.url()).pathname)
-			.toMatch(/\/email\/routing$/);
-		await expect.poll(() => editAndResendButton.isEnabled()).toBe(true);
+	});
 
-		await page.getByRole("button", { name: "Edit and resend" }).click();
-		expect(await page.locator("#test-email-from").inputValue()).toBe(
-			"sender@example.com"
-		);
-		expect(await page.getByLabel("Subject").inputValue()).toBe(
-			"Original subject"
-		);
-		expect(await page.getByLabel("Text body").inputValue()).toBe(
-			"Original body"
-		);
-		expect(await page.getByLabel("Header 1 name").inputValue()).toBe(
-			"X-Multiline"
-		);
-		expect(await page.getByLabel("Header 1 value").inputValue()).toBe(
-			"first line\nsecond line"
-		);
-		expect(await page.getByLabel("Header 2 name").inputValue()).toBe(
-			"__proto__"
-		);
-		expect(await page.getByLabel("Header 2 value").inputValue()).toBe(
-			"prototype-safe value"
+	test("keeps unavailable edit actions focusable with an explanation", async ({
+		expect,
+	}) => {
+		const reason =
+			"Emails sent from uploaded .eml files cannot be edited and resent.";
+		await mockEmailRoutingDetail(false, {
+			editAndResendAvailable: false,
+			editAndResendUnavailableReason: reason,
+			showInList: true,
+		});
+		await loadWorker();
+		let projectionRequests = 0;
+		await page.route(EMAIL_ROUTING_RESEND_DRAFT_ROUTE, async (route) => {
+			projectionRequests++;
+			await fulfillApiResult(route, null);
+		});
+		await page.goto(
+			new URL(
+				"/cdn-cgi/local/explorer/email/routing?worker=worker-1",
+				viteUrl
+			).toString()
 		);
 
-		await page.getByLabel("Subject").fill("Updated subject");
-		await page.getByRole("button", { name: "Send Email" }).click();
-		await expect.poll(() => sentBodies.length).toBe(2);
-		expect(sentBodies[1]).toMatchObject({ subject: "Updated subject" });
+		const editButton = page.getByRole("button", { name: "Edit and resend" });
+		expect(await editButton.getAttribute("disabled")).toBeNull();
+		expect(await editButton.getAttribute("aria-disabled")).toBe("true");
+		await editButton.hover();
+		await page.getByText(reason).waitFor();
+		await editButton.focus();
+		expect(
+			await editButton.evaluate((element) => element === document.activeElement)
+		).toBe(true);
+		await editButton.evaluate((button) => {
+			(button as HTMLElement).click();
+		});
+		expect(projectionRequests).toBe(0);
+		expect(new URL(page.url()).pathname).toMatch(/\/email\/routing$/);
+	});
+
+	test("deduplicates immediate resend, reports outcomes, and refreshes after settle", async ({
+		expect,
+	}) => {
+		await mockEmailRoutingDetail(false, {
+			capturedPortion: true,
+			showInList: true,
+		});
+		await loadWorker();
+		let attempts = 0;
+		let listRequests = 0;
+		let releaseFirst: (() => void) | undefined;
+		const firstReleased = new Promise<void>((resolve) => {
+			releaseFirst = resolve;
+		});
+		function countListRequest(request: Request): void {
+			const url = new URL(request.url());
+			if (
+				request.method() === "GET" &&
+				url.pathname.endsWith("/local/email/routing")
+			) {
+				listRequests++;
+			}
+		}
+		page.on("request", countListRequest);
+		await page.route(EMAIL_ROUTING_RESEND_ROUTE, async (route) => {
+			attempts++;
+			if (attempts === 1) {
+				await firstReleased;
+				await fulfillApiResult(route, {
+					capturedPortion: true,
+					messageId: "<partial-resend@example.com>",
+					outcome: "ok",
+				});
+				return;
+			}
+			if (attempts === 2) {
+				await fulfillApiResult(route, {
+					capturedPortion: false,
+					messageId: "<rejected-resend@example.com>",
+					outcome: "ok",
+					rejectReason: "Mailbox unavailable",
+				});
+				return;
+			}
+			if (attempts === 3) {
+				await fulfillApiResult(route, {
+					capturedPortion: false,
+					messageId: "<exception-resend@example.com>",
+					outcome: "exception",
+				});
+				return;
+			}
+			await route.fulfill({
+				body: JSON.stringify({
+					errors: [{ code: 10603, message: "Source email was not found." }],
+					messages: [],
+					result: null,
+					success: false,
+				}),
+				contentType: "application/json",
+				status: 404,
+			});
+		});
+		await page.goto(
+			new URL(
+				"/cdn-cgi/local/explorer/email/routing?worker=worker-1",
+				viteUrl
+			).toString()
+		);
+		await expect.poll(() => listRequests).toBeGreaterThan(0);
+		const initialListRequests = listRequests;
+		const resendButton = page.getByRole("button", {
+			name: "Resend",
+			exact: true,
+		});
+		await resendButton.evaluate((button) => {
+			(button as HTMLElement).click();
+			(button as HTMLElement).click();
+		});
+		await expect.poll(() => attempts).toBe(1);
+		await expect.poll(() => resendButton.isDisabled()).toBe(true);
+		expect(await resendButton.getAttribute("aria-busy")).toBe("true");
+		expect(new URL(page.url()).pathname).toMatch(/\/email\/routing$/);
+		releaseFirst?.();
+		await page.getByText("Captured portion resent.").waitFor();
+		await page
+			.getByText("Only the portion retained by local capture was available")
+			.waitFor();
+		await expect.poll(() => listRequests).toBeGreaterThan(initialListRequests);
+
+		await expect.poll(() => resendButton.isEnabled()).toBe(true);
+		await resendButton.click();
+		await page
+			.getByText("The Worker's email() handler rejected the resent email.")
+			.waitFor();
+		await page.getByText("Mailbox unavailable").waitFor();
+		await expect.poll(() => resendButton.isEnabled()).toBe(true);
+		await resendButton.click();
+		await page
+			.getByText(
+				"The Worker's email() handler threw while processing the resent email."
+			)
+			.waitFor();
+		await expect.poll(() => resendButton.isEnabled()).toBe(true);
+		await resendButton.click();
+		await page.getByText("Source email was not found.").waitFor();
+		expect(attempts).toBe(4);
+		page.off("request", countListRequest);
 	});
 
 	test("reports composer validation errors accessibly and rejects managed headers", async ({

@@ -23,11 +23,11 @@ import type {
 } from "./types";
 
 interface UseSendTestEmailComposerOptions {
+	incompleteSource?: boolean;
 	initialDraft?: TestEmailDraft;
 	onError: (message: string) => void;
 	onOpenChange: (open: boolean) => void;
 	onSendSuccess: () => void;
-	onStructuredSent: (draft: TestEmailDraft) => void;
 	open: boolean;
 	worker?: string;
 }
@@ -75,11 +75,11 @@ function getRawHandlerError(result: {
 
 /** Coordinates test-email state, attachment reads, and API submission. */
 export function useSendTestEmailComposer({
+	incompleteSource = false,
 	initialDraft,
 	onError,
 	onOpenChange,
 	onSendSuccess,
-	onStructuredSent,
 	open,
 	worker,
 }: UseSendTestEmailComposerOptions): SendTestEmailComposerController {
@@ -101,7 +101,6 @@ export function useSendTestEmailComposer({
 		dispatch({
 			type: "loadDraft",
 			attachments: normalizedDraft.attachments,
-			bcc: normalizedDraft.bcc,
 			cc: normalizedDraft.cc,
 			from: normalizedDraft.from,
 			headers: normalizedDraft.headers.map((header) => ({
@@ -257,7 +256,7 @@ export function useSendTestEmailComposer({
 			headers: validation.headers,
 			toError: validation.toError,
 		});
-		if (!validation.request || !validation.sentDraft) {
+		if (!validation.request) {
 			return;
 		}
 		if (!worker) {
@@ -270,7 +269,10 @@ export function useSendTestEmailComposer({
 		try {
 			const { error: sendError, response } = await emailSendRouting({
 				body: validation.request,
-				query: { worker },
+				query: {
+					...(incompleteSource ? { incomplete_source: true } : {}),
+					worker,
+				},
 				throwOnError: false,
 			});
 			if (sendError || !response.ok) {
@@ -280,7 +282,6 @@ export function useSendTestEmailComposer({
 				}
 			}
 			loadDraft();
-			onStructuredSent(validation.sentDraft);
 			onSendSuccess();
 			onOpenChange(false);
 		} catch (error) {

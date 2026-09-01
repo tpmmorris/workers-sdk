@@ -135,21 +135,27 @@ async function storeReceivedEmail(
 		subject: string;
 		receivedAt?: string;
 		text?: string;
+		origin?: EmailCaptureOrigin;
+		captureTruncated?: boolean;
+		incompleteSource?: boolean;
+		raw?: string;
 	}
 ): Promise<void> {
 	const store = (await instance._getProxyClient()).env[
 		CoreBindings.SERVICE_EMAIL_STORE
 	] as unknown as EmailStoreService;
 	const captureId = crypto.randomUUID();
-	const raw = [
-		"From: sender@example.com",
-		"To: recipient@example.com",
-		`Message-ID: ${email.messageId}`,
-		`Subject: ${email.subject}`,
-		"Content-Type: text/plain",
-		"",
-		email.text ?? email.subject,
-	].join("\r\n");
+	const raw =
+		email.raw ??
+		[
+			"From: sender@example.com",
+			"To: recipient@example.com",
+			`Message-ID: ${email.messageId}`,
+			`Subject: ${email.subject}`,
+			"Content-Type: text/plain",
+			"",
+			email.text ?? email.subject,
+		].join("\r\n");
 	await store.storeReceivedBody(
 		captureId,
 		0,
@@ -157,6 +163,9 @@ async function storeReceivedEmail(
 	);
 	await store.storeReceivedMetadata(captureId, 1, {
 		worker: email.worker,
+		...(email.origin === undefined ? {} : { origin: email.origin }),
+		...(email.captureTruncated ? { captureTruncated: true } : {}),
+		...(email.incompleteSource ? { incompleteSource: true } : {}),
 		messageId: email.messageId,
 		from: "sender@example.com",
 		to: "recipient@example.com",
@@ -1225,6 +1234,572 @@ describe("Local Explorer email API", () => {
 		expect(
 			await getReceivedOrigin(mf, result.result.messageId, WORKER_NAME)
 		).toBe("composer");
+	});
+
+	test("projects composer captures and exposes row resend capabilities", async ({
+		expect,
+	}) => {
+		const attachmentContent = Buffer.from([0x00, 0x80, 0xff]).toString(
+			"base64"
+		);
+		const sendResponse = await dispatchExplorerApi(
+			mf,
+			`/local/email/routing/send?worker=${WORKER_NAME}`,
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					from: '"Sender" <sender@example.com>',
+					to: ['"First" <first@example.com>', "second@example.com"],
+					cc: ["copy@example.com"],
+					bcc: ["hidden@example.com"],
+					replyTo: "reply@example.com",
+					subject: "Projected composer",
+					headers: { "X-Custom": "custom value" },
+					text: "Plain body",
+					html: "<p>HTML body</p>",
+					attachments: [
+						{
+							filename: "bytes.bin",
+							type: "application/octet-stream",
+							content: attachmentContent,
+							disposition: "inline",
+							contentId: "projected-bytes",
+						},
+					],
+				}),
+			}
+		);
+		expect(sendResponse.status).toBe(200);
+		const sent = (await sendResponse.json()) as {
+			result: { messageId: string };
+		};
+
+		const listResponse = await dispatchExplorerApi(
+			mf,
+			`/local/email/routing?worker=${WORKER_NAME}`
+		);
+		expect(listResponse.status).toBe(200);
+		const list = (await listResponse.json()) as {
+			result: Array<{
+				messageId: string;
+				editAndResendAvailable: boolean;
+				capturedPortion: boolean;
+				editAndResendUnavailableReason?: string;
+			}>;
+		};
+		expect(
+			list.result.find(({ messageId }) => messageId === sent.result.messageId)
+		).toMatchObject({
+			editAndResendAvailable: true,
+			capturedPortion: false,
+		});
+
+		const draftResponse = await dispatchExplorerApi(
+			mf,
+			`/local/email/routing/resend/draft?${new URLSearchParams({
+				worker: WORKER_NAME,
+				message_id: sent.result.messageId,
+			})}`
+		);
+		const draftBody = (await draftResponse.json()) as {
+			result: {
+				capturedPortion: boolean;
+				draft: {
+					from: string;
+					to: string[];
+					cc?: string[];
+					replyTo?: string;
+					subject: string;
+					headers?: Record<string, string>;
+					text?: string;
+					html?: string;
+					attachments?: Array<{
+						content: string;
+						contentId?: string;
+						disposition?: string;
+					}>;
+				};
+			};
+		};
+		expect(draftResponse.status, JSON.stringify(draftBody)).toBe(200);
+		expect(draftBody.result).toMatchObject({
+			capturedPortion: false,
+			draft: {
+				from: '"Sender" <sender@example.com>',
+				to: ['"First" <first@example.com>', "second@example.com"],
+				cc: ["copy@example.com"],
+				replyTo: "reply@example.com",
+				subject: "Projected composer",
+				headers: { "x-custom": "custom value" },
+				text: "Plain body\n",
+				html: "<p>HTML body</p>\n",
+			},
+		});
+		expect(draftBody.result.draft).not.toHaveProperty("bcc");
+		expect(draftBody.result.draft.headers).toEqual({
+			"x-custom": "custom value",
+		});
+		expect(draftBody.result.draft.attachments?.[0]?.content).toBe(
+			attachmentContent
+		);
+		expect(draftBody.result.draft.attachments?.[0]).toMatchObject({
+			disposition: "inline",
+			contentId: "<projected-bytes>",
+		});
+	});
+
+	test("replays a capture by reference with its stored envelope and a new Message-ID", async ({
+		expect,
+	}) => {
+		const sourceId = await sendRoutingTestEmail(
+			mf,
+			WORKER_NAME,
+			{
+				from: "envelope-sender@example.com",
+				to: ["envelope-recipient@example.com"],
+				subject: "Resend source",
+				text: "Resend body",
+			},
+			expect
+		);
+		const response = await dispatchExplorerApi(
+			mf,
+			`/local/email/routing/resend?${new URLSearchParams({
+				worker: WORKER_NAME,
+				message_id: sourceId,
+			})}`,
+			{ method: "POST" }
+		);
+		const body = (await response.json()) as {
+			result: {
+				messageId: string;
+				outcome: string;
+				capturedPortion: boolean;
+			};
+		};
+		expect(response.status, JSON.stringify(body)).toBe(200);
+		expect(body.result).toMatchObject({
+			outcome: "ok",
+			capturedPortion: false,
+		});
+		expect(body.result.messageId).not.toBe(sourceId);
+
+		const detail = await expectValidResponse(
+			await dispatchExplorerApi(
+				mf,
+				`/local/email/routing?${new URLSearchParams({
+					worker: WORKER_NAME,
+					email_id: body.result.messageId,
+				})}`
+			),
+			zEmailRoutingDetailResponse,
+			expect
+		);
+		expect(detail.result).toMatchObject({
+			from: "envelope-sender@example.com",
+			to: "envelope-recipient@example.com",
+			messageId: body.result.messageId,
+			capturedPortion: false,
+		});
+		expect(detail.result?.raw).toContain("Subject: Resend source");
+		expect(detail.result?.raw).not.toContain(sourceId);
+		expect(
+			await getReceivedOrigin(mf, body.result.messageId, WORKER_NAME)
+		).toBe("composer");
+	});
+
+	for (const [mode, expected] of [
+		["reject", { outcome: "ok", rejectReason: "Rejected by test worker" }],
+		["exception", { outcome: "exception" }],
+	] as const) {
+		test(`returns the ${mode} handler outcome when resending by reference`, async ({
+			expect,
+		}) => {
+			const sent = await dispatchExplorerApi(
+				mf,
+				`/local/email/routing/send?worker=${WORKER_NAME}`,
+				{
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						from: "sender@example.com",
+						to: ["recipient@example.com"],
+						subject: `Resend ${mode}`,
+						text: "Body",
+						headers: { "X-Test-Mode": mode },
+					}),
+				}
+			);
+			const source = (await sent.json()) as {
+				result: { messageId: string };
+			};
+			const response = await dispatchExplorerApi(
+				mf,
+				`/local/email/routing/resend?${new URLSearchParams({
+					worker: WORKER_NAME,
+					message_id: source.result.messageId,
+				})}`,
+				{ method: "POST" }
+			);
+			const body = await response.json();
+			expect(response.status, JSON.stringify(body)).toBe(200);
+			expect(body).toMatchObject({
+				result: { ...expected, capturedPortion: false },
+			});
+		});
+	}
+
+	test("retains captured-portion lineage through repeated resends", async ({
+		expect,
+	}) => {
+		const sourceId = "<partial-source@example.com>";
+		await storeReceivedEmail(mf, {
+			worker: WORKER_NAME,
+			messageId: sourceId,
+			subject: "Partial source",
+			origin: "composer",
+			captureTruncated: true,
+		});
+		const firstResponse = await dispatchExplorerApi(
+			mf,
+			`/local/email/routing/resend?${new URLSearchParams({
+				worker: WORKER_NAME,
+				message_id: sourceId,
+			})}`,
+			{ method: "POST" }
+		);
+		const firstBody = (await firstResponse.json()) as {
+			result: { messageId: string; capturedPortion: boolean };
+			messages: Array<{ message: string }>;
+		};
+		expect(firstResponse.status, JSON.stringify(firstBody)).toBe(200);
+		expect(firstBody.result.capturedPortion).toBe(true);
+		expect(firstBody.messages[0]?.message).toContain("captured portion");
+
+		const secondResponse = await dispatchExplorerApi(
+			mf,
+			`/local/email/routing/resend?${new URLSearchParams({
+				worker: WORKER_NAME,
+				message_id: firstBody.result.messageId,
+			})}`,
+			{ method: "POST" }
+		);
+		const secondBody = (await secondResponse.json()) as {
+			result: { messageId: string; capturedPortion: boolean };
+		};
+		expect(secondResponse.status, JSON.stringify(secondBody)).toBe(200);
+		expect(secondBody.result.capturedPortion).toBe(true);
+
+		const list = (await (
+			await dispatchExplorerApi(
+				mf,
+				`/local/email/routing?worker=${WORKER_NAME}`
+			)
+		).json()) as {
+			result: Array<{ messageId: string; capturedPortion: boolean }>;
+		};
+		expect(
+			list.result.find(
+				({ messageId }) => messageId === secondBody.result.messageId
+			)
+		).toMatchObject({ capturedPortion: true });
+	});
+
+	test("retains captured-portion lineage after submitting a projected draft", async ({
+		expect,
+	}) => {
+		const sourceId = "<partial-projection@example.com>";
+		await storeReceivedEmail(mf, {
+			worker: WORKER_NAME,
+			messageId: sourceId,
+			subject: "Partial projection",
+			origin: "composer",
+			captureTruncated: true,
+		});
+		const query = new URLSearchParams({
+			worker: WORKER_NAME,
+			message_id: sourceId,
+		});
+		const draftResponse = await dispatchExplorerApi(
+			mf,
+			`/local/email/routing/resend/draft?${query}`
+		);
+		const projection = (await draftResponse.json()) as {
+			result: { draft: Record<string, unknown>; capturedPortion: boolean };
+		};
+		expect(projection.result.capturedPortion).toBe(true);
+
+		const sendResponse = await dispatchExplorerApi(
+			mf,
+			`/local/email/routing/send?${new URLSearchParams({
+				worker: WORKER_NAME,
+				incomplete_source: "true",
+			})}`,
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify(projection.result.draft),
+			}
+		);
+		const sent = (await sendResponse.json()) as {
+			result: { messageId: string };
+		};
+		expect(sendResponse.status, JSON.stringify(sent)).toBe(200);
+
+		const detail = await expectExplorerApiResponse(
+			mf,
+			`/local/email/routing?${new URLSearchParams({
+				worker: WORKER_NAME,
+				email_id: sent.result.messageId,
+			})}`,
+			zEmailRoutingDetailResponse,
+			expect
+		);
+		expect(detail.result?.capturedPortion).toBe(true);
+		expect(detail.messages[0]?.message).toContain("captured portion");
+	});
+
+	test("returns a fallback draft and warning when a truncated prefix is not parseable", async ({
+		expect,
+	}) => {
+		const sourceId = "<invalid-partial@example.com>";
+		await storeReceivedEmail(mf, {
+			worker: WORKER_NAME,
+			messageId: sourceId,
+			subject: "Stored fallback subject",
+			origin: "composer",
+			captureTruncated: true,
+			raw: "From: sender@example.com\r\nTo: recipient@example.com\r\nSubject",
+		});
+		const query = new URLSearchParams({
+			worker: WORKER_NAME,
+			message_id: sourceId,
+		});
+		const draft = await dispatchExplorerApi(
+			mf,
+			`/local/email/routing/resend/draft?${query}`
+		);
+		const draftBody = (await draft.json()) as {
+			result: {
+				capturedPortion: boolean;
+				draft: { from: string; to: string[]; subject: string };
+			};
+			messages: Array<{ message: string }>;
+		};
+		expect(draft.status, JSON.stringify(draftBody)).toBe(200);
+		expect(draftBody.result).toMatchObject({
+			capturedPortion: true,
+			draft: {
+				from: "sender@example.com",
+				to: ["recipient@example.com"],
+				subject: "Stored fallback subject",
+			},
+		});
+		expect(draftBody.messages[0]?.message).toContain("captured portion");
+
+		const resend = await dispatchExplorerApi(
+			mf,
+			`/local/email/routing/resend?${query}`,
+			{ method: "POST" }
+		);
+		const resendBody = (await resend.json()) as {
+			messages: Array<{ message: string }>;
+		};
+		expect(resend.status).toBe(400);
+		expect(resendBody.messages[0]?.message).toContain("captured portion");
+	});
+
+	test("keeps uploaded and unknown captures directly resendable but not editable", async ({
+		expect,
+	}) => {
+		const rawId = "<uploaded-origin@example.com>";
+		const unknownId = "<unknown-origin@example.com>";
+		await storeReceivedEmail(mf, {
+			worker: WORKER_NAME,
+			messageId: rawId,
+			subject: "Uploaded",
+			origin: "eml",
+			captureTruncated: true,
+		});
+		await storeReceivedEmail(mf, {
+			worker: WORKER_NAME,
+			messageId: unknownId,
+			subject: "Unknown",
+		});
+		const list = (await (
+			await dispatchExplorerApi(
+				mf,
+				`/local/email/routing?worker=${WORKER_NAME}`
+			)
+		).json()) as {
+			result: Array<{
+				messageId: string;
+				editAndResendAvailable: boolean;
+				editAndResendUnavailableReason?: string;
+				capturedPortion: boolean;
+			}>;
+		};
+		expect(
+			list.result.find(({ messageId }) => messageId === rawId)
+		).toMatchObject({
+			editAndResendAvailable: false,
+			editAndResendUnavailableReason:
+				"Emails sent from uploaded .eml files cannot be edited and resent.",
+			capturedPortion: true,
+		});
+		expect(
+			list.result.find(({ messageId }) => messageId === unknownId)
+		).toMatchObject({
+			editAndResendAvailable: false,
+			editAndResendUnavailableReason:
+				"Only emails sent from the composer can be edited and resent.",
+		});
+
+		for (const [messageId, reason] of [
+			[rawId, "uploaded .eml"],
+			[unknownId, "Only emails sent from the composer"],
+		] as const) {
+			const draft = await dispatchExplorerApi(
+				mf,
+				`/local/email/routing/resend/draft?${new URLSearchParams({
+					worker: WORKER_NAME,
+					message_id: messageId,
+				})}`
+			);
+			const draftBody = (await draft.json()) as {
+				messages: Array<{ message: string }>;
+			};
+			expect(draft.status).toBe(400);
+			expect(JSON.stringify(draftBody)).toContain(reason);
+			if (messageId === rawId) {
+				expect(draftBody.messages[0]?.message).toContain("captured portion");
+			}
+
+			const resend = await dispatchExplorerApi(
+				mf,
+				`/local/email/routing/resend?${new URLSearchParams({
+					worker: WORKER_NAME,
+					message_id: messageId,
+				})}`,
+				{ method: "POST" }
+			);
+			const resendBody = await resend.json();
+			expect(resend.status, JSON.stringify(resendBody)).toBe(200);
+		}
+	});
+
+	test("scopes resend lookup to the Worker and uses the newest duplicate Message-ID", async ({
+		expect,
+	}) => {
+		const duplicateId = "<duplicate-resend@example.com>";
+		await storeReceivedEmail(mf, {
+			worker: WORKER_NAME,
+			messageId: duplicateId,
+			subject: "Older duplicate",
+			origin: "composer",
+		});
+		await storeReceivedEmail(mf, {
+			worker: WORKER_NAME,
+			messageId: duplicateId,
+			subject: "Newest duplicate",
+			origin: "composer",
+		});
+
+		const wrongWorker = await dispatchExplorerApi(
+			mf,
+			`/local/email/routing/resend?${new URLSearchParams({
+				worker: NO_EMAIL_HANDLER_WORKER_NAME,
+				message_id: duplicateId,
+			})}`,
+			{ method: "POST" }
+		);
+		await wrongWorker.text();
+		expect(wrongWorker.status).toBe(404);
+
+		const response = await dispatchExplorerApi(
+			mf,
+			`/local/email/routing/resend?${new URLSearchParams({
+				worker: WORKER_NAME,
+				message_id: duplicateId,
+			})}`,
+			{ method: "POST" }
+		);
+		const body = (await response.json()) as {
+			result: { messageId: string };
+		};
+		expect(response.status, JSON.stringify(body)).toBe(200);
+		const detail = await expectExplorerApiResponse(
+			mf,
+			`/local/email/routing?${new URLSearchParams({
+				worker: WORKER_NAME,
+				email_id: body.result.messageId,
+			})}`,
+			zEmailRoutingDetailResponse,
+			expect
+		);
+		expect(detail.result?.subject).toBe("Newest duplicate");
+	});
+
+	test("removes Bcc and reports a missing handler when resending by reference", async ({
+		expect,
+	}) => {
+		const sourceId = "<missing-handler-source@example.com>";
+		await storeReceivedEmail(mf, {
+			worker: NO_EMAIL_HANDLER_WORKER_NAME,
+			messageId: sourceId,
+			subject: "Missing handler resend",
+			origin: "eml",
+			raw: [
+				"From: sender@example.com",
+				"To: recipient@example.com",
+				"Bcc: hidden@example.com",
+				`Message-ID: ${sourceId}`,
+				"Subject: Missing handler resend",
+				"Content-Type: text/plain",
+				"",
+				"Body",
+			].join("\r\n"),
+		});
+		const response = await dispatchExplorerApi(
+			mf,
+			`/local/email/routing/resend?${new URLSearchParams({
+				worker: NO_EMAIL_HANDLER_WORKER_NAME,
+				message_id: sourceId,
+			})}`,
+			{ method: "POST" }
+		);
+		const responseBody = await response.json();
+		expect(response.status).toBe(400);
+		expect(responseBody).toMatchObject({
+			errors: [
+				{
+					message: `Worker '${NO_EMAIL_HANDLER_WORKER_NAME}' does not export an email() handler.`,
+				},
+			],
+		});
+
+		const list = await expectExplorerApiResponse(
+			mf,
+			`/local/email/routing?worker=${NO_EMAIL_HANDLER_WORKER_NAME}`,
+			zEmailListRoutingResponse,
+			expect
+		);
+		const resent = getListResult(list.result).find(
+			({ messageId }) => messageId !== sourceId
+		);
+		expect(resent).toBeDefined();
+		const detail = await expectExplorerApiResponse(
+			mf,
+			`/local/email/routing?${new URLSearchParams({
+				worker: NO_EMAIL_HANDLER_WORKER_NAME,
+				email_id: String(resent?.messageId),
+			})}`,
+			zEmailRoutingDetailResponse,
+			expect
+		);
+		expect(detail.result?.raw).not.toMatch(/^Bcc:/gim);
+		expect(detail.result?.raw).toContain("Body");
 	});
 
 	test("preserves the malformed structured JSON error envelope", async ({
@@ -2487,6 +3062,61 @@ describe("Local Explorer email aggregation", () => {
 		});
 	});
 
+	test("routes draft projection and resend references to the owning peer", async ({
+		expect,
+	}) => {
+		const messageId = await sendRoutingTestEmail(
+			instanceA,
+			"email-b",
+			{
+				subject: "Peer resend source",
+				text: "Peer resend body",
+			},
+			expect
+		);
+		const query = new URLSearchParams({
+			worker: "email-b",
+			message_id: messageId,
+		});
+		const draft = await dispatchExplorerApi(
+			instanceA,
+			`/local/email/routing/resend/draft?${query}`
+		);
+		const draftBody = (await draft.json()) as {
+			result: { draft: { subject: string }; capturedPortion: boolean };
+		};
+		expect(draft.status, JSON.stringify(draftBody)).toBe(200);
+		expect(draftBody.result).toMatchObject({
+			draft: { subject: "Peer resend source" },
+			capturedPortion: false,
+		});
+
+		const resend = await dispatchExplorerApi(
+			instanceA,
+			`/local/email/routing/resend?${query}`,
+			{ method: "POST" }
+		);
+		const resendBody = (await resend.json()) as {
+			result: { messageId: string; capturedPortion: boolean };
+		};
+		expect(resend.status, JSON.stringify(resendBody)).toBe(200);
+		expect(resendBody.result.capturedPortion).toBe(false);
+
+		const detail = await expectExplorerApiResponse(
+			instanceA,
+			`/local/email/routing?${new URLSearchParams({
+				worker: "email-b",
+				email_id: resendBody.result.messageId,
+			})}`,
+			zEmailRoutingDetailResponse,
+			expect
+		);
+		expect(detail.result).toMatchObject({
+			worker: "email-b",
+			messageId: resendBody.result.messageId,
+		});
+	});
+
 	test("forwards raw MIME unchanged to the worker-owning peer", async ({
 		expect,
 	}) => {
@@ -2644,6 +3274,24 @@ describe("Local Explorer email aggregation", () => {
 			})
 		);
 		try {
+			for (const [path, method] of [
+				["/local/email/routing/resend", "POST"],
+				["/local/email/routing/resend/draft", "GET"],
+			] as const) {
+				const operation = await dispatchExplorerApi(
+					instanceA,
+					`${path}?${new URLSearchParams({
+						worker: unavailableWorker,
+						message_id: "<missing@example.com>",
+					})}`,
+					{ method }
+				);
+				expect(operation.status).toBe(502);
+				expect(await operation.json()).toMatchObject({
+					errors: [{ code: 10603 }],
+				});
+			}
+
 			const rawSend = await dispatchExplorerApi(
 				instanceA,
 				`/local/email/routing/send?worker=${unavailableWorker}`,

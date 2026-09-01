@@ -19,7 +19,7 @@ import { isEmailReplyable, validateReply } from "../email/validate";
 import { CoreBindings } from "./constants";
 import type { MiniflareEmailMessage } from "../email/email.worker";
 import type {
-	EmailCaptureOrigin,
+	EmailCaptureContext,
 	EmailHandlerEvent,
 	EmailHandlerForward,
 	EmailHandlerReply,
@@ -66,7 +66,7 @@ export async function handleEmail(
 	workerName: string,
 	env: Env,
 	ctx: ExecutionContext,
-	captureOrigin?: EmailCaptureOrigin
+	captureContext?: EmailCaptureContext
 ): Promise<Response> {
 	const events: EmailHandlerEvent[] = [];
 	const forwards: EmailHandlerForward[] = [];
@@ -185,7 +185,12 @@ export async function handleEmail(
 			]);
 			const metadata: StoredRoutingEmailMetadata = {
 				worker: workerName,
-				...(captureOrigin === undefined ? {} : { origin: captureOrigin }),
+				...(captureContext?.origin === undefined
+					? {}
+					: { origin: captureContext.origin }),
+				...(captureContext?.incompleteSource === true
+					? { incompleteSource: true }
+					: {}),
 				from: storedFrom,
 				to: storedTo,
 				cc: parsedFields.cc,

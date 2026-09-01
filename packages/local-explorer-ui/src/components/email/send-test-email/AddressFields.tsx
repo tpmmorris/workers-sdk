@@ -9,7 +9,7 @@ interface AddressFieldsProps {
 	onChange: (field: AddressField, value: string) => void;
 	values: Pick<
 		TestEmailComposerState,
-		"bcc" | "cc" | "from" | "replyTo" | "subject" | "to"
+		"cc" | "from" | "replyTo" | "subject" | "to"
 	>;
 }
 
@@ -48,24 +48,14 @@ export function AddressFields({
 				value={values.to}
 			/>
 
-			<div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-				<ComposerInput
-					id="test-email-cc"
-					label="Cc"
-					onChange={(event) => onChange("cc", event.target.value)}
-					placeholder="cc@example.com"
-					type="text"
-					value={values.cc}
-				/>
-				<ComposerInput
-					id="test-email-bcc"
-					label="Bcc"
-					onChange={(event) => onChange("bcc", event.target.value)}
-					placeholder="bcc@example.com"
-					type="text"
-					value={values.bcc}
-				/>
-			</div>
+			<ComposerInput
+				id="test-email-cc"
+				label="Cc"
+				onChange={(event) => onChange("cc", event.target.value)}
+				placeholder="cc@example.com"
+				type="text"
+				value={values.cc}
+			/>
 
 			<ComposerInput
 				id="test-email-reply-to"

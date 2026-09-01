@@ -17,7 +17,6 @@ export interface TestEmailComposerValidation {
 	fromError: string | null;
 	headers: TestEmailHeaderField[];
 	request?: EmailSendRequest;
-	sentDraft?: TestEmailDraft;
 	toError: string | null;
 }
 
@@ -124,7 +123,6 @@ export function normalizeTestEmailDraft(
 		from: draft?.from ?? "",
 		to: draft?.to ?? "",
 		cc: draft?.cc ?? "",
-		bcc: draft?.bcc ?? "",
 		replyTo: draft?.replyTo ?? "",
 		subject: draft?.subject ?? "",
 		headers: (draft?.headers ?? []).map((header) => ({ ...header })),
@@ -136,7 +134,7 @@ export function normalizeTestEmailDraft(
 	};
 }
 
-/** Validates composer state and constructs its request and retained draft. */
+/** Validates composer state and constructs its structured send request. */
 export function validateTestEmailComposer(
 	state: TestEmailComposerState
 ): TestEmailComposerValidation {
@@ -193,10 +191,6 @@ export function validateTestEmailComposer(
 	if (cc.length > 0) {
 		request.cc = cc;
 	}
-	const bcc = parseAddressList(state.bcc);
-	if (bcc.length > 0) {
-		request.bcc = bcc;
-	}
 	if (state.replyTo.trim()) {
 		request.replyTo = state.replyTo.trim();
 	}
@@ -215,27 +209,11 @@ export function validateTestEmailComposer(
 		);
 	}
 
-	const sentDraft: TestEmailDraft = {
-		from: state.from,
-		to: state.to,
-		cc: state.cc,
-		bcc: state.bcc,
-		replyTo: state.replyTo,
-		subject: state.subject,
-		headers: headers
-			.filter((header) => header.name.trim() || header.value)
-			.map(({ name, value }) => ({ name, value })),
-		text: state.text,
-		html: state.html,
-		attachments: state.attachments.map((attachment) => ({ ...attachment })),
-	};
-
 	return {
 		attachmentsError,
 		fromError,
 		headers,
 		request,
-		sentDraft,
 		toError,
 	};
 }

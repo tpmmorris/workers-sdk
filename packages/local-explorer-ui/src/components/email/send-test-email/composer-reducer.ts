@@ -9,7 +9,6 @@ export type TestEmailComposerAction =
 	| {
 			type: "loadDraft";
 			attachments: SelectedTestEmailAttachment[];
-			bcc: string;
 			cc: string;
 			from: string;
 			headers: TestEmailHeaderField[];
@@ -60,7 +59,6 @@ export function createInitialComposerState(): TestEmailComposerState {
 		attachments: [],
 		attachmentsError: null,
 		attachmentReadGeneration: 0,
-		bcc: "",
 		cc: "",
 		from: "",
 		fromError: null,
@@ -89,7 +87,6 @@ export function testEmailComposerReducer(
 				attachments: action.attachments,
 				attachmentsError: null,
 				attachmentReadGeneration: action.readGeneration,
-				bcc: action.bcc,
 				cc: action.cc,
 				from: action.from,
 				fromError: null,
