@@ -25,6 +25,7 @@ export interface SharedContext {
 	miniflare?: Miniflare;
 	workerNameToExportTypesMap?: Map<string, ExportTypes>;
 	hasShownWorkerConfigWarnings: boolean;
+	hasShownAssetsBasePathWarning: boolean;
 	/** Tracks the number of in-flight dev server restarts (0 means no restart in progress) */
 	restartingDevServerCount: number;
 	/** Allowed hostnames for tunnel connections */
@@ -109,6 +110,17 @@ export class PluginContext {
 
 	get hasShownWorkerConfigWarnings(): boolean {
 		return this.#sharedContext.hasShownWorkerConfigWarnings;
+	}
+
+	setHasShownAssetsBasePathWarning(
+		hasShownAssetsBasePathWarning: boolean
+	): void {
+		this.#sharedContext.hasShownAssetsBasePathWarning =
+			hasShownAssetsBasePathWarning;
+	}
+
+	get hasShownAssetsBasePathWarning(): boolean {
+		return this.#sharedContext.hasShownAssetsBasePathWarning;
 	}
 
 	beginRestartingDevServer(): void {

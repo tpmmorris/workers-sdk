@@ -1,5 +1,8 @@
 import * as path from "node:path";
-import { normalizeUriEncodedBasePath } from "@cloudflare/workers-shared/utils/base-path";
+import {
+	normalizeBasePath,
+	normalizeUriEncodedBasePath,
+} from "@cloudflare/workers-shared/utils/base-path";
 import {
 	constructHeaders,
 	constructRedirects,
@@ -165,6 +168,49 @@ export function resolveAssetsBasePath(
 	return normalizedBasePath.valid
 		? normalizedBasePath.value
 		: resolvedConfig.base;
+}
+
+/**
+ * Return a user-facing warning when Vite's resolved `base` cannot be inherited
+ * or conflicts with an explicit `assets.base_path`.
+ *
+ * This is intentionally separate from {@link resolveAssetsBasePath}: the
+ * resolver is used by multiple development and build paths, while the warning
+ * should only be emitted once from Vite's `configResolved` hook.
+ */
+export function getAssetsBasePathWarning(
+	basePath: string | undefined,
+	resolvedConfig: ResolvedViteBase
+): string | undefined {
+	const viteBase = resolvedConfig.base;
+	const isRootRelative = viteBase.startsWith("/") && !viteBase.startsWith("//");
+	const normalizedViteBase = isRootRelative
+		? normalizeUriEncodedBasePath(viteBase)
+		: undefined;
+
+	if (basePath === undefined) {
+		if (!isRootRelative) {
+			return `The resolved Vite base "${viteBase}" is not a root-relative path, so it cannot be used as assets.base_path. Set assets.base_path explicitly if the application should be served from a subpath.`;
+		}
+		if (!normalizedViteBase?.valid) {
+			return `The resolved Vite base "${viteBase}" could not be converted to a valid assets.base_path. Set assets.base_path explicitly to a valid pathname.`;
+		}
+		return undefined;
+	}
+
+	if (!normalizedViteBase?.valid) {
+		return undefined;
+	}
+
+	const normalizedExplicitBasePath = normalizeBasePath(basePath);
+	if (
+		!normalizedExplicitBasePath.valid ||
+		normalizedExplicitBasePath.value === normalizedViteBase.value
+	) {
+		return undefined;
+	}
+
+	return `The explicit assets.base_path "${basePath}" overrides the resolved Vite base "${viteBase}". Ensure the two paths intentionally differ, otherwise generated asset URLs may not resolve.`;
 }
 
 export function inheritAssetsBasePath(

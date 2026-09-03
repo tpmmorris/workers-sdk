@@ -1,5 +1,6 @@
 import { describe, test } from "vitest";
 import {
+	getAssetsBasePathWarning,
 	getAssetsConfig,
 	inheritAssetsBasePath,
 	resolveAssetsBasePath,
@@ -137,4 +138,46 @@ describe("getAssetsConfig", () => {
 			inheritAssetsBasePath(config, resolvedViteConfig("/app/")).assets
 		).toBeUndefined();
 	});
+});
+
+describe("getAssetsBasePathWarning", () => {
+	test.for([
+		"./app",
+		"app/",
+		"//cdn.example.com/app/",
+		"https://example.com/app/",
+	])("warns when the Vite base cannot be inherited: %s", (base, { expect }) => {
+		expect(getAssetsBasePathWarning(undefined, { base })).toBe(
+			`The resolved Vite base "${base}" is not a root-relative path, so it cannot be used as assets.base_path. Set assets.base_path explicitly if the application should be served from a subpath.`
+		);
+	});
+
+	test("warns when a root-relative Vite base is invalid", ({ expect }) => {
+		expect(getAssetsBasePathWarning(undefined, { base: "/app%2Fadmin/" })).toBe(
+			'The resolved Vite base "/app%2Fadmin/" could not be converted to a valid assets.base_path. Set assets.base_path explicitly to a valid pathname.'
+		);
+	});
+
+	test("warns when an explicit base path conflicts with the Vite base", ({
+		expect,
+	}) => {
+		expect(getAssetsBasePathWarning("/assets", { base: "/app/" })).toBe(
+			'The explicit assets.base_path "/assets" overrides the resolved Vite base "/app/". Ensure the two paths intentionally differ, otherwise generated asset URLs may not resolve.'
+		);
+	});
+
+	test.for([
+		{ basePath: undefined, viteBase: "/app/" },
+		{ basePath: "/app", viteBase: "/app/" },
+		{ basePath: "./app", viteBase: "/app/" },
+		{ basePath: "/assets", viteBase: "https://example.com/app/" },
+		{ basePath: "https://example.com/assets", viteBase: "/app/" },
+	])(
+		"does not warn for compatible or independently validated values: $basePath and $viteBase",
+		({ basePath, viteBase }, { expect }) => {
+			expect(
+				getAssetsBasePathWarning(basePath, { base: viteBase })
+			).toBeUndefined();
+		}
+	);
 });

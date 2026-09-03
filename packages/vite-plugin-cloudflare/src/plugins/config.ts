@@ -9,6 +9,7 @@ import {
 } from "@cloudflare/build-output-utils";
 import { normalizePath } from "vite";
 import {
+	getAssetsBasePathWarning,
 	hasAssetsConfigChanged,
 	inheritAssetsBasePath,
 	resolveAssetsBasePath,
@@ -99,6 +100,18 @@ export const configPlugin = createPlugin("config", (ctx) => {
 
 			if (ctx.resolvedPluginConfig.type === "preview") {
 				return;
+			}
+
+			const assetsConfig =
+				ctx.resolvedPluginConfig.type === "assets-only"
+					? ctx.resolvedPluginConfig.config.assets
+					: ctx.entryWorkerConfig?.assets;
+			const assetsBasePathWarning = assetsConfig
+				? getAssetsBasePathWarning(assetsConfig.base_path, resolvedViteConfig)
+				: undefined;
+			if (assetsBasePathWarning && !ctx.hasShownAssetsBasePathWarning) {
+				ctx.setHasShownAssetsBasePathWarning(true);
+				resolvedViteConfig.logger.warn(assetsBasePathWarning);
 			}
 
 			validateWorkerEnvironmentOptions(

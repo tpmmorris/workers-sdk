@@ -54,6 +54,7 @@ export type { WorkerConfig } from "./workers-configs";
 
 const sharedContext: SharedContext = {
 	hasShownWorkerConfigWarnings: false,
+	hasShownAssetsBasePathWarning: false,
 	restartingDevServerCount: 0,
 	tunnelHostnames: new Set(),
 };

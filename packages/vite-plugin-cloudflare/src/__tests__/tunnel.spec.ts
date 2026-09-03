@@ -34,6 +34,7 @@ function createMockPluginContext(options: {
 }) {
 	const ctx = new PluginContext({
 		hasShownWorkerConfigWarnings: false,
+		hasShownAssetsBasePathWarning: false,
 		restartingDevServerCount: 0,
 		tunnelHostnames: new Set(),
 	});
