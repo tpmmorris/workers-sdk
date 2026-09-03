@@ -39,6 +39,15 @@ test("serves Worker API routes beneath the Vite base", async ({ expect }) => {
 	expect(await response.json()).toEqual({ name: "Cloudflare" });
 });
 
+test("fetches a mounted asset through the assets binding", async ({
+	expect,
+}) => {
+	const response = await fetch(fixtureUrl("/docs/api/asset"));
+
+	expect(response.status).toBe(200);
+	expect(await response.text()).toBe("Modified: Asset content.\n");
+});
+
 test.runIf(isBuild)("canonicalizes the base root", async ({ expect }) => {
 	const response = await fetch(fixtureUrl("/docs"), { redirect: "manual" });
 	expect(response.status).toBe(307);
