@@ -125,6 +125,7 @@ describe.skipIf(!satisfiesMinimumViteVersion("7.2.7"))("shortcuts", () => {
 	}) {
 		const mockContext = new PluginContext({
 			hasShownWorkerConfigWarnings: false,
+			hasShownAssetsBasePathWarning: false,
 			restartingDevServerCount: 0,
 			tunnelHostnames: new Set(),
 		});
