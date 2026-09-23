@@ -921,8 +921,9 @@ describe("Local Explorer email API", () => {
 			mf,
 			"/local/email/routing?worker="
 		);
-		expect(emptyWorker.status, await emptyWorker.clone().text()).toBe(200);
-		expect(await emptyWorker.json()).toMatchObject({ result: [] });
+		const emptyWorkerText = await emptyWorker.text();
+		expect(emptyWorker.status, emptyWorkerText).toBe(200);
+		expect(JSON.parse(emptyWorkerText)).toMatchObject({ result: [] });
 		const mismatch = await dispatchExplorerApi(
 			mf,
 			`/local/email/routing?capture_id=${olderCaptureId}&worker=wrong-worker`
